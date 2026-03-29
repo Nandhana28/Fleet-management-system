@@ -1,0 +1,14 @@
+# backend/app/routers/health.py
+from fastapi import APIRouter
+from app.config import settings
+
+router = APIRouter()
+
+
+@router.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "env": settings.app_env,
+        "localstack": settings.use_localstack,
+    }
