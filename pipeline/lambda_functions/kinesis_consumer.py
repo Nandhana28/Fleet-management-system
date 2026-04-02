@@ -1,6 +1,5 @@
 import json
 import boto3
-import base64
 from datetime import datetime
 
 # AWS clients
@@ -10,10 +9,8 @@ trips_table = dynamodb.Table("Trips")
 
 
 def parse_gps_payload(record):
-    """Decode and parse a single Kinesis record"""
-    # Kinesis records are base64 encoded
-    raw_data = base64.b64decode(record["kinesis"]["data"]).decode("utf-8")
-    return json.loads(raw_data)
+    """Parse a single SQS message body"""
+    return json.loads(record["body"])
 
 
 def save_trip_record(payload):
@@ -61,19 +58,19 @@ def update_vehicle_location(payload):
 
 def handler(event, context):
     """
-    Main Lambda handler — triggered by Kinesis stream
+    Main Lambda handler — triggered by SQS queue
     Processes batches of GPS records
     """
-    print(f"📦 Processing {len(event['Records'])} records from Kinesis")
+    print(f"📦 Processing {len(event['Records'])} records from SQS")
 
     success_count = 0
     error_count = 0
 
     for record in event["Records"]:
         try:
-            # Parse GPS payload from Kinesis record
+            # Parse GPS payload from SQS message
             payload = parse_gps_payload(record)
-            print(f"🚗 Processing {payload['vehicle_id']} at {payload['timestamp']}")
+            print(f"🚗 Processing {payload['vehicle_id']} " f"at {payload['timestamp']}")
 
             # Save to Trips table
             save_trip_record(payload)

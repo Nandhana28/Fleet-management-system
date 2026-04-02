@@ -2,14 +2,16 @@ import time
 import json
 import random
 import threading
+import boto3
 from datetime import datetime
-import paho.mqtt.client as mqtt
-from faker import Faker
 
-fake = Faker()
+# ─── AWS SQS Configuration ───────────────────────────────────────────────────
+SQS_QUEUE_URL = (
+    "https://sqs.ap-south-1.amazonaws.com/" "746491203215/fleetpulse-gps-queue"
+)
+sqs_client = boto3.client("sqs", region_name="ap-south-1")
 
 # ─── Coimbatore GPS Boundaries ───────────────────────────────────────────────
-# Real coordinates around Coimbatore city
 COIMBATORE_BOUNDS = {
     "lat_min": 10.9800,
     "lat_max": 11.0800,
@@ -22,14 +24,8 @@ VEHICLES = [
     {"vehicle_id": f"vehicle-{i}", "driver_id": f"driver-{i}"} for i in range(1, 11)
 ]
 
-# ─── AWS IoT Core Configuration ──────────────────────────────────────────────
-MQTT_BROKER = "localhost"  # LocalStack for now
-MQTT_PORT = 1883
-USE_LOCAL = False  # Skip MQTT, just print locally for now
-MQTT_TOPIC = "fleetpulse/gps"
-
 # ─── Chaos Mode Flag ─────────────────────────────────────────────────────────
-CHAOS_MODE = True  # Set to False for normal simulation
+CHAOS_MODE = True
 
 
 # ─── Helper Functions ─────────────────────────────────────────────────────────
@@ -41,7 +37,7 @@ def get_random_coimbatore_location():
 
 
 def get_normal_speed():
-    """Normal city driving speed in Coimbatore — 20 to 60 km/h"""
+    """Normal city driving speed — 20 to 60 km/h"""
     return round(random.uniform(20, 60), 2)
 
 
@@ -51,20 +47,14 @@ def get_normal_fuel():
 
 
 def inject_chaos(speed, fuel):
-    """
-    Chaos mode — randomly inject anomalies for ML testing
-    3 types of anomalies:
-    1. Overspeeding — speed > 80 km/h
-    2. Fuel theft — sudden fuel drop > 15%
-    3. Both at same time
-    """
+    """Randomly inject anomalies for ML testing"""
     anomaly_type = random.choice(
         [
             "normal",
             "normal",
-            "normal",  # 60% chance normal
-            "overspeed",  # 20% chance overspeed
-            "fuel_theft",  # 20% chance fuel theft
+            "normal",
+            "overspeed",
+            "fuel_theft",
         ]
     )
 
@@ -74,29 +64,25 @@ def inject_chaos(speed, fuel):
 
     elif anomaly_type == "fuel_theft":
         fuel = round(fuel - random.uniform(15, 30), 2)
-        fuel = max(0, fuel)  # Don't go below 0
+        fuel = max(0, fuel)
         print(f"🚨 CHAOS: Fuel theft injected — fuel dropped to {fuel}%")
 
     return speed, fuel
 
 
 # ─── Vehicle Simulator ────────────────────────────────────────────────────────
-def simulate_vehicle(vehicle, client):
-    """
-    Simulate a single vehicle sending GPS data every 2 seconds
-    Each vehicle runs in its own thread
-    """
+def simulate_vehicle(vehicle):
+    """Simulate a single vehicle sending GPS data every 2 seconds"""
     vehicle_id = vehicle["vehicle_id"]
     driver_id = vehicle["driver_id"]
 
-    # Starting location
     lat, lon = get_random_coimbatore_location()
     fuel = get_normal_fuel()
 
     print(f"🚗 Starting simulation for {vehicle_id}")
 
     while True:
-        # Slightly move vehicle from last position (realistic movement)
+        # Move vehicle slightly
         lat += random.uniform(-0.001, 0.001)
         lon += random.uniform(-0.001, 0.001)
 
@@ -104,15 +90,12 @@ def simulate_vehicle(vehicle, client):
         lat = max(COIMBATORE_BOUNDS["lat_min"], min(COIMBATORE_BOUNDS["lat_max"], lat))
         lon = max(COIMBATORE_BOUNDS["lon_min"], min(COIMBATORE_BOUNDS["lon_max"], lon))
 
-        # Normal readings
         speed = get_normal_speed()
-        fuel = max(0, fuel - random.uniform(0.1, 0.5))  # Fuel slowly decreases
+        fuel = max(0, fuel - random.uniform(0.1, 0.5))
 
-        # Inject chaos if enabled
         if CHAOS_MODE:
             speed, fuel = inject_chaos(speed, fuel)
 
-        # Build GPS payload
         payload = {
             "vehicle_id": vehicle_id,
             "driver_id": driver_id,
@@ -124,79 +107,48 @@ def simulate_vehicle(vehicle, client):
             "status": "moving" if speed > 0 else "idle",
         }
 
-        # Publish to MQTT topic
-        topic = f"{MQTT_TOPIC}/{vehicle_id}"
-        if client:
-            client.publish(topic, json.dumps(payload))
+        # Send to SQS
+        try:
+            sqs_client.send_message(
+                QueueUrl=SQS_QUEUE_URL,
+                MessageBody=json.dumps(payload),
+            )
+            print(
+                f"📍 {vehicle_id} | "
+                f"lat={payload['latitude']} "
+                f"lon={payload['longitude']} | "
+                f"speed={speed} km/h | "
+                f"fuel={fuel:.1f}% | "
+                f"✅ SQS sent"
+            )
+        except Exception as e:
+            print(f"❌ SQS error for {vehicle_id}: {str(e)}")
 
-        print(
-            f"📍 {vehicle_id} | "
-            f"lat={payload['latitude']} "
-            f"lon={payload['longitude']} | "
-            f"speed={speed} km/h | "
-            f"fuel={fuel:.1f}%"
-        )
-
-        time.sleep(2)  # Send data every 2 seconds
-
-
-# ─── MQTT Setup ───────────────────────────────────────────────────────────────
-def on_connect(client, userdata, flags, rc, properties=None):
-    if rc == 0:
-        print("✅ Connected to MQTT broker!")
-    else:
-        print(f"❌ Connection failed with code {rc}")
-
-
-def on_publish(client, userdata, mid, reason_code=None, properties=None):
-    pass  # Silent on every publish
+        time.sleep(2)
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 def main():
     print("🚀 FleetPulse GPS Simulator Starting...")
-    print(f"📡 Connecting to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+    print(f"📡 Sending to SQS: {SQS_QUEUE_URL}")
     print(f"💥 Chaos Mode: {'ON' if CHAOS_MODE else 'OFF'}")
     print(f"🚗 Simulating {len(VEHICLES)} vehicles in Coimbatore\n")
-
-    # Setup MQTT client
-    client = mqtt.Client(
-        mqtt.CallbackAPIVersion.VERSION2, client_id="fleetpulse-simulator"
-    )
-    client.on_connect = on_connect
-    client.on_publish = on_publish
-
-    # Connect to broker
-    # Connect to broker
-    try:
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        client.loop_start()
-        print("✅ Connected to MQTT broker!")
-    except Exception as e:
-        print(f"⚠️ MQTT broker not available: {e}")
-        print("💡 Running in PRINT-ONLY mode for testing...")
-        client = None
 
     # Start one thread per vehicle
     threads = []
     for vehicle in VEHICLES:
-        t = threading.Thread(
-            target=simulate_vehicle, args=(vehicle, client), daemon=True
-        )
+        t = threading.Thread(target=simulate_vehicle, args=(vehicle,), daemon=True)
         threads.append(t)
         t.start()
-        time.sleep(0.1)  # Small delay between thread starts
+        time.sleep(0.1)
 
     print(f"\n✅ All {len(VEHICLES)} vehicle threads started!\n")
 
-    # Keep main thread alive
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n🛑 Simulator stopped by user")
-        client.loop_stop()
-        client.disconnect()
 
 
 if __name__ == "__main__":
