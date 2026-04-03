@@ -1,0 +1,20 @@
+backend:
+  replicas: 1
+  image: fleetpulse-backend
+  tag: latest
+  port: 8000
+
+frontend:
+  replicas: 1
+  image: fleetpulse-frontend
+  tag: latest
+  port: 80
+
+agent:
+  replicas: 1
+  image: fleetpulse-agent
+  tag: latest
+  port: 8001
+
+redis:
+  replicas: 1

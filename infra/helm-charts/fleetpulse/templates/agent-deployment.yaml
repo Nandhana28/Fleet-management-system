@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleetpulse-agent
+  labels:
+    app: fleetpulse-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fleetpulse-agent
+  template:
+    metadata:
+      labels:
+        app: fleetpulse-agent
+    spec:
+      containers:
+        - name: agent
+          image: {{ .Values.agent.image }}:{{ .Values.agent.tag }}
+          ports:
+            - containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: fleetpulse-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

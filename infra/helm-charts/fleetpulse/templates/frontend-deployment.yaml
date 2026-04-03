@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: fleetpulse-frontend
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      app: fleetpulse-frontend
+  template:
+    metadata:
+      labels:
+        app: fleetpulse-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: {{ .Values.frontend.image }}
+          imagePullPolicy: Never
+          ports:
+            - containerPort: {{ .Values.frontend.port }}
