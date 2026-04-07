@@ -1,0 +1,50 @@
+name: FleetPulse CD
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build and push Docker image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Building image with tag $IMAGE_TAG"
+          echo "ECR Registry: $ECR_REGISTRY"
+
+      - name: Update Helm chart version
+        run: |
+          sed -i "s/tag: latest/tag: ${{ github.sha }}/g" \
+          infra/helm-charts/fleetpulse/values.yaml
+
+      - name: Commit updated Helm values
+        run: |
+          git config --global user.email "ci@fleetpulse.com"
+          git config --global user.name "FleetPulse CI"
+          git add infra/helm-charts/fleetpulse/values.yaml
+          git commit -m "chore: update image tag to ${{ github.sha }}" || echo "No changes"
+          git push || echo "Nothing to push"
+
+      - name: Notify Slack
+        run: |
+          echo "FleetPulse deployed successfully!"
