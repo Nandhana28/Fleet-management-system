@@ -5,7 +5,6 @@ from app.config import settings
 from app.routers import health, vehicles, alerts, analytics, agent
 from app.routers import auth
 
-
 security = HTTPBearer()
 
 app = FastAPI(
@@ -17,6 +16,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        settings.frontend_url,
         "http://localhost:3000",
         "http://localhost:5173",
     ],

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleetpulse-config
+data:
+  AWS_REGION: "ap-south-1"
+  DYNAMODB_VEHICLES_TABLE: "Vehicles"
+  DYNAMODB_TRIPS_TABLE: "Trips"
+  DYNAMODB_ALERTS_TABLE: "Alerts"
+  SQS_QUEUE_URL: "https://sqs.ap-south-1.amazonaws.com/746491203215/fleetpulse-gps-queue"
+  REDIS_HOST: "fleetpulse-redis-service"
+  REDIS_PORT: "6379"

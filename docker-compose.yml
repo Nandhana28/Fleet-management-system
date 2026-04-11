@@ -6,6 +6,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: fleetpulse-backend
+    image: fleetpulse-backend
     ports:
       - "8000:8000"
     env_file:
@@ -16,7 +17,6 @@ services:
       - LOCALSTACK_ENDPOINT=http://localstack:4566
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
-      - PERSISTENCE=1
     volumes:
       - ./backend:/app
     depends_on:
@@ -35,6 +35,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: fleetpulse-celery-worker
+    image: fleetpulse-backend
     command: celery -A tasks.celery_app worker --loglevel=info
     env_file:
       - ./backend/.env
@@ -57,6 +58,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: fleetpulse-celery-beat
+    image: fleetpulse-backend
     command: celery -A tasks.celery_app beat --loglevel=info
     env_file:
       - ./backend/.env
@@ -93,6 +95,7 @@ services:
       - SERVICES=dynamodb,s3,sns,sqs,lambda,secretsmanager,kinesis
       - DEFAULT_REGION=ap-south-1
       - LOCALSTACK_ACKNOWLEDGE_ACCOUNT_REQUIREMENT=1
+      - PERSISTENCE=1
     volumes:
       - localstack_data:/var/lib/localstack
     restart: unless-stopped

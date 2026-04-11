@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: fleetpulse
+  namespace: argocd
+spec:
+  description: FleetPulse Fleet Intelligence Platform
+  sourceRepos:
+    - https://github.com/Nandhana28/Fleet-management-system
+  destinations:
+    - namespace: default
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"

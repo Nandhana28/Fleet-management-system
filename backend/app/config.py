@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
 
+<<<<<<< HEAD
     # Twilio
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
@@ -29,6 +30,9 @@ class Settings(BaseSettings):
 
     # Frontend URL
     frontend_url: str = "http://localhost:5173"
+=======
+    frontend_url: str = "http://localhost:3000"
+>>>>>>> fbe4f8c4131a7d78e290c509fc46f652929199ac
     anthropic_api_key: str = ""
 
     class Config:
