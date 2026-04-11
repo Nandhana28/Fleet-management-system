@@ -1,20 +1,85 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+*.egg
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.npm/
+frontend/dist/
+frontend/build/
+
+# Vite
+*.local
+
 # Terraform
 **/.terraform/
 **/.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
+*.tfvars
 lambda_zips/
+terraform.tfstate.d/
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.env
-venv/
+# Docker
+*.dockerignore
 
-# VS Code
-.vscode/
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Logs
+*.log
+logs/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains / PyCharm
+.idea/
+*.iml
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MyPy
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# LocalStack data (optional - remove if you want to persist)
+localstack_data/
+
+# Compiled files
+*.so
+*.dylib
+*.dll
+
+# Keys / secrets
+*.pem
+*.key
+*.cert
