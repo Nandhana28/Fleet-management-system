@@ -1,29 +1,71 @@
+import os
+import json
 import boto3
+import redis
 from datetime import datetime
 
-# AWS clients
-dynamodb = boto3.resource("dynamodb", region_name="ap-south-1")
-sns_client = boto3.client("sns", region_name="ap-south-1")
-sqs_client = boto3.client("sqs", region_name="ap-south-1")
+def _get_boto_kwargs():
+    if os.environ.get("USE_LOCALSTACK", "true").lower() == "true":
+        endpoint = os.environ.get("LOCALSTACK_ENDPOINT", "http://localhost:4566")
+        return {
+            "endpoint_url": endpoint,
+            "region_name": "ap-south-1",
+            "aws_access_key_id": "test",
+            "aws_secret_access_key": "test",
+        }
+    return {"region_name": os.environ.get("AWS_REGION", "ap-south-1")}
 
-# DynamoDB tables
-vehicles_table = dynamodb.Table("Vehicles")
-trips_table = dynamodb.Table("Trips")
-alerts_table = dynamodb.Table("Alerts")
+def _dynamodb():
+    return boto3.resource("dynamodb", **_get_boto_kwargs())
 
+def _sns():
+    return boto3.client("sns", **_get_boto_kwargs())
 
-# ─── Tool 1: Query Vehicle Location ──────────────────────────────────────────
-def query_vehicle_location(vehicle_id: str) -> dict:
-    """
-    Query the latest location of a vehicle from DynamoDB
-    Returns: lat, lng, speed, fuel level
-    """
+def _redis():
+    """Get Redis client for live location data."""
     try:
-        response = vehicles_table.get_item(Key={"vehicle_id": vehicle_id})
+        redis_url = os.environ.get("REDIS_URL", "redis://127.0.0.1:6380/0")
+        client = redis.from_url(redis_url, decode_responses=True)
+        client.ping()
+        return client
+    except Exception:
+        return None
+
+
+def query_vehicle_location(vehicle_id: str) -> dict:
+    """Query live vehicle location from Redis (updated by GPS simulator)."""
+    try:
+        redis_client = _redis()
+        if not redis_client:
+            return {"error": "Redis connection failed"}
+        
+        # Try to get live location from Redis first
+        key = f"vehicle:{vehicle_id}:location"
+        data = redis_client.get(key)
+        
+        if data:
+            location = json.loads(data)
+            return {
+                "vehicle_id": vehicle_id,
+                "latitude": location.get("latitude"),
+                "longitude": location.get("longitude"),
+                "speed": location.get("speed"),
+                "fuel_level": location.get("fuel_level"),
+                "status": location.get("status"),
+                "source": location.get("source"),
+                "dest": location.get("dest"),
+                "progress": location.get("progress"),
+                "odometer": location.get("odometer"),
+                "driver_fatigue": location.get("driver_fatigue"),
+                "timestamp": location.get("timestamp"),
+            }
+        
+        # Fallback to DynamoDB if not in Redis
+        table = _dynamodb().Table("Vehicles")
+        response = table.get_item(Key={"vehicle_id": vehicle_id})
         item = response.get("Item")
         if not item:
             return {"error": f"Vehicle {vehicle_id} not found"}
-
         return {
             "vehicle_id": vehicle_id,
             "latitude": item.get("latitude", "unknown"),
@@ -37,14 +79,10 @@ def query_vehicle_location(vehicle_id: str) -> dict:
         return {"error": str(e)}
 
 
-# ─── Tool 2: Get Trip History ─────────────────────────────────────────────────
 def get_trip_history(vehicle_id: str, days: int = 7) -> dict:
-    """
-    Get last N days of trips for a vehicle from DynamoDB
-    Returns: list of trip records
-    """
     try:
-        response = trips_table.scan(
+        table = _dynamodb().Table("Trips")
+        response = table.scan(
             FilterExpression="vehicle_id = :vid",
             ExpressionAttributeValues={":vid": vehicle_id},
             Limit=50,
@@ -54,76 +92,55 @@ def get_trip_history(vehicle_id: str, days: int = 7) -> dict:
             "vehicle_id": vehicle_id,
             "days": days,
             "total_trips": len(trips),
-            "trips": trips[:10],  # Return last 10 trips
+            "trips": trips[:10],
         }
     except Exception as e:
         return {"error": str(e)}
 
 
-# ─── Tool 3: Get Active Alerts ────────────────────────────────────────────────
 def get_active_alerts() -> dict:
-    """
-    Get all unresolved anomaly alerts from DynamoDB
-    Returns: list of active alerts
-    """
+    """Get active alerts from DynamoDB."""
     try:
-        response = alerts_table.scan(
-            FilterExpression="#st = :status",
-            ExpressionAttributeNames={"#st": "status"},
-            ExpressionAttributeValues={":status": "UNRESOLVED"},
+        table = _dynamodb().Table("Alerts")
+        response = table.scan(
+            FilterExpression="resolved = :resolved",
+            ExpressionAttributeValues={":resolved": False},
         )
         alerts = response.get("Items", [])
         return {
             "total_active_alerts": len(alerts),
-            "alerts": alerts[:20],  # Return last 20 alerts
+            "alerts": alerts[:20],
         }
     except Exception as e:
         return {"error": str(e)}
 
 
-# ─── Tool 4: Send WhatsApp Alert ──────────────────────────────────────────────
 def send_whatsapp_alert(phone: str, message: str) -> dict:
-    """
-    Send WhatsApp/SMS alert via AWS SNS
-    Returns: message ID if successful
-    """
     try:
-        response = sns_client.publish(
+        sns = _sns()
+        response = sns.publish(
             PhoneNumber=phone,
             Message=f"FleetPulse Alert: {message}",
         )
-        return {
-            "success": True,
-            "message_id": response["MessageId"],
-            "phone": phone,
-        }
+        return {"success": True, "message_id": response["MessageId"], "phone": phone}
     except Exception as e:
         return {"error": str(e)}
 
 
-# ─── Tool 5: Generate Fuel Report ────────────────────────────────────────────
 def generate_fuel_report(vehicle_id: str) -> dict:
-    """
-    Generate fuel consumption report for a vehicle
-    Aggregates DynamoDB trip data
-    Returns: fuel summary
-    """
     try:
-        response = trips_table.scan(
+        table = _dynamodb().Table("Trips")
+        response = table.scan(
             FilterExpression="vehicle_id = :vid",
             ExpressionAttributeValues={":vid": vehicle_id},
             Limit=100,
         )
         trips = response.get("Items", [])
-
         if not trips:
             return {"error": f"No trip data found for {vehicle_id}"}
-
-        # Calculate fuel statistics
-        fuel_levels = [
-            float(t.get("fuel_level", 0)) for t in trips if t.get("fuel_level")
-        ]
-
+        fuel_levels = [float(t.get("fuel_level", 0)) for t in trips if t.get("fuel_level")]
+        if not fuel_levels:
+            return {"error": "No fuel data available"}
         return {
             "vehicle_id": vehicle_id,
             "total_readings": len(fuel_levels),
@@ -136,14 +153,10 @@ def generate_fuel_report(vehicle_id: str) -> dict:
         return {"error": str(e)}
 
 
-# ─── Tool 6: Update Vehicle Status ───────────────────────────────────────────
 def update_vehicle_status(vehicle_id: str, status: str) -> dict:
-    """
-    Update vehicle status in DynamoDB
-    Status can be: active, inactive, maintenance, emergency
-    """
     try:
-        vehicles_table.update_item(
+        table = _dynamodb().Table("Vehicles")
+        table.update_item(
             Key={"vehicle_id": vehicle_id},
             UpdateExpression="SET #st = :status, last_updated = :ts",
             ExpressionAttributeNames={"#st": "status"},

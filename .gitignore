@@ -71,8 +71,12 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
-# LocalStack data (optional - remove if you want to persist)
+# LocalStack data
 localstack_data/
+prometheus_data/
+loki_data/
+grafana_data/
+redis_data/
 
 # Compiled files
 *.so
@@ -83,3 +87,79 @@ localstack_data/
 *.pem
 *.key
 *.cert
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+.env.local.backup
+
+# Docker volumes (already covered but explicit)
+localstack_data/
+prometheus_data/
+loki_data/
+grafana_data/
+redis_data/
+
+# Generated files
+*.pyc
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE workspace settings
+.vscode/settings.json
+.idea/workspace.xml
+
+# Sensitive data
+.env
+.env.local
+.env.*.local
+.env.backup.txt
+secrets.json
+credentials.json
+*.backup
+*.backup.txt
+
+# Monitoring data
+*.rdb
+dump.rdb

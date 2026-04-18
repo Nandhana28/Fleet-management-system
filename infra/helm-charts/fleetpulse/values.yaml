@@ -1,27 +1,75 @@
-# Backend configuration
+# FleetPulse Helm Chart — Default Values
+
 backend:
-  replicas: 1
-  image: nginx
+  replicas: 2
+  image: fleetpulse-backend
   tag: latest
-  port: 80
+  port: 8000
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
 
-# Frontend configuration
 frontend:
-  replicas: 1
-  image: nginx
+  replicas: 2
+  image: fleetpulse-frontend
   tag: latest
   port: 80
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
 
-# Agent configuration
 agent:
   replicas: 1
-  image: nginx
+  image: fleetpulse-agent
   tag: latest
-  port: 80
+  port: 8001
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
 
-# Redis configuration
 redis:
   replicas: 1
   image: redis
-  tag: "7.0"
+  tag: "7-alpine"
   port: 6379
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+hpa:
+  backend:
+    minReplicas: 2
+    maxReplicas: 5
+    cpuThreshold: 70
+  frontend:
+    minReplicas: 2
+    maxReplicas: 4
+    cpuThreshold: 70
+
+ingress:
+  enabled: true
+  host: fleetpulse.example.com
+
+aws:
+  region: ap-south-1
+
+env:
+  useLocalstack: "false"
+  appEnv: "production"
+  frontendUrl: "https://fleetpulse.example.com"

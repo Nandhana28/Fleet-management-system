@@ -19,3 +19,13 @@ def trip_analytics(user=Depends(get_current_user)):
 @router.get("/drivers")
 def driver_analytics(user=Depends(get_current_user)):
     return analytics_service.get_driver_analytics()
+
+
+@router.get("/alerts")
+def alert_breakdown(user=Depends(get_current_user)):
+    return analytics_service.get_alert_breakdown()
+
+
+@router.get("/summary")
+def fleet_summary(user=Depends(get_current_user)):
+    return analytics_service.get_fleet_summary()

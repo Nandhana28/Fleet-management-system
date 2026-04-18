@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import AuthLayout from '../../components/auth/AuthLayout'
 import { register, sendEmailOtp } from '../../services/authApi'
+import { useToastStore } from '../../store/toast'
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 18 18">
@@ -24,6 +25,11 @@ export default function Signup() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const { showToast } = useToastStore()
+  const [searchParams] = useSearchParams()
+  const urlError = searchParams.get('error') === 'already_exists'
+    ? 'This Google account is already registered. Please sign in instead.'
+    : null
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setForm(p => ({ ...p, [k]: e.target.value }))
 
@@ -44,7 +50,8 @@ export default function Signup() {
         localStorage.setItem('signup_user_id', data.user_id)
         localStorage.setItem('signup_email', form.email)
         localStorage.setItem('signup_phone', `+91${form.phone}`)
-        navigate('/verify-email', { state: { email: form.email } })
+        showToast('Account created! Please sign in.')
+        navigate('/login', { state: { message: 'Account created! Please sign in.' } })
     } catch (err: any) {
         setError(err.response?.data?.detail || 'Registration failed.')
     } finally {
@@ -54,14 +61,17 @@ export default function Signup() {
 
   return (
     <AuthLayout title="Create your account" subtitle="Start managing your fleet with real-time intelligence">
+
+      {urlError && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#dc2626', marginBottom: 12 }}>
+          {urlError}
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 22 }}>
-        <button className="social-btn" onClick={() => alert('Google OAuth — connect backend in Week 4')}>
+        <button className="social-btn" onClick={() => { window.location.href = 'http://127.0.0.1:8000/auth/google?mode=signup' }}>
           <GoogleIcon />
           Sign up with Google
-        </button>
-        <button className="social-btn" onClick={() => alert('LinkedIn OAuth — connect backend in Week 4')}>
-          <LinkedInIcon />
-          Sign up with LinkedIn
         </button>
       </div>
 
@@ -138,7 +148,7 @@ export default function Signup() {
         </button>
       </form>
 
-      <p style={{ textAlign: 'center', fontSize: 14, color: '#64748b', marginTop: 24 }}>
+      <p style={{ textAlign: 'center', fontSize: 14, color: '#64748b', marginTop: 16 }}>
         Already have an account?{' '}
         <span className="auth-link" onClick={() => navigate('/login')}>Sign in</span>
       </p>

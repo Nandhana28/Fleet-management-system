@@ -1,20 +1,39 @@
+# Dev overrides — uses LocalStack, lower resources
+
 backend:
   replicas: 1
-  image: fleetpulse-backend
   tag: latest
-  port: 8000
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "250m"
 
 frontend:
   replicas: 1
-  image: fleetpulse-frontend
   tag: latest
-  port: 80
 
 agent:
   replicas: 1
-  image: fleetpulse-agent
   tag: latest
-  port: 8001
 
-redis:
-  replicas: 1
+hpa:
+  backend:
+    minReplicas: 1
+    maxReplicas: 2
+    cpuThreshold: 80
+  frontend:
+    minReplicas: 1
+    maxReplicas: 2
+    cpuThreshold: 80
+
+ingress:
+  enabled: true
+  host: localhost
+
+env:
+  useLocalstack: "true"
+  appEnv: "development"
+  frontendUrl: "http://localhost:5173"

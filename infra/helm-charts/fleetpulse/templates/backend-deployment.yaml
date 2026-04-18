@@ -17,15 +17,32 @@ spec:
       containers:
         - name: backend
           image: {{ .Values.backend.image }}:{{ .Values.backend.tag }}
+          imagePullPolicy: Always
           ports:
-            - containerPort: 8000
+            - containerPort: {{ .Values.backend.port }}
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
           envFrom:
             - configMapRef:
                 name: fleetpulse-config
+            - secretRef:
+                name: fleetpulse-secrets
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "250m"
+              memory: {{ .Values.backend.resources.requests.memory }}
+              cpu: {{ .Values.backend.resources.requests.cpu }}
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: {{ .Values.backend.resources.limits.memory }}
+              cpu: {{ .Values.backend.resources.limits.cpu }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.backend.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.backend.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10

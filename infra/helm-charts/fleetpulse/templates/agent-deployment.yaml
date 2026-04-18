@@ -5,7 +5,7 @@ metadata:
   labels:
     app: fleetpulse-agent
 spec:
-  replicas: 1
+  replicas: {{ .Values.agent.replicas }}
   selector:
     matchLabels:
       app: fleetpulse-agent
@@ -17,15 +17,25 @@ spec:
       containers:
         - name: agent
           image: {{ .Values.agent.image }}:{{ .Values.agent.tag }}
+          imagePullPolicy: Always
           ports:
-            - containerPort: 8001
+            - containerPort: {{ .Values.agent.port }}
           envFrom:
             - configMapRef:
                 name: fleetpulse-config
+            - secretRef:
+                name: fleetpulse-secrets
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "250m"
+              memory: {{ .Values.agent.resources.requests.memory }}
+              cpu: {{ .Values.agent.resources.requests.cpu }}
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: {{ .Values.agent.resources.limits.memory }}
+              cpu: {{ .Values.agent.resources.limits.cpu }}
+            livenessProbe:
+              httpGet:
+                path: /health
+                port: {{ .Values.agent.port }}
+              initialDelaySeconds: 20
+              periodSeconds: 30
+              failureThreshold: 3

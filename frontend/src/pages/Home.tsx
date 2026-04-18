@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+
 const useInView = (threshold = 0.15) => {
   const ref = useRef<HTMLDivElement>(null)
   const [inView, setInView] = useState(false)
@@ -29,42 +31,12 @@ const useCounter = (target: number, inView: boolean, duration = 1800) => {
 }
 
 const painPoints = [
-  {
-    title: "You call. They don't answer.",
-    body: "Tracking 10 vehicles means 10 phone calls per hour. You never actually know where they are — you know where they said they were.",
-    fix: "Live GPS positions updated every 5 seconds. No calls. No guessing. Every vehicle pinned on a map, right now.",
-    tag: 'Location Tracking',
-  },
-  {
-    title: 'Fuel receipts in a shoebox.',
-    body: 'Month-end means three days reconstructing fuel spend from paper receipts, driver claims, and gut feeling. Leakage is invisible.',
-    fix: 'Every litre logged automatically per trip. Anomalies flagged instantly. Your fuel budget is finally visible.',
-    tag: 'Fuel Analytics',
-  },
-  {
-    title: 'You find out after the accident.',
-    body: 'Speeding, harsh braking, low fuel — you only hear about it when something breaks. By then, the damage is done.',
-    fix: 'Real-time alerts the moment a threshold is crossed. You intervene before it becomes an incident.',
-    tag: 'Smart Alerts',
-  },
-  {
-    title: 'No idea who your worst driver is.',
-    body: "Everyone says they drive fine. You have no data to argue. The reckless driver keeps driving until the inevitable happens.",
-    fix: "Every driver scored per trip — speed, braking, idle time. The leaderboard doesn't lie.",
-    tag: 'Driver Scorecards',
-  },
-  {
-    title: 'Monthly reports take days.',
-    body: 'Your manager wants a fleet summary. You spend three days copying numbers from spreadsheets into slides. Then they change a date.',
-    fix: 'Reports generated automatically. PDF ready in one click. Always accurate, always current.',
-    tag: 'Automated Reports',
-  },
-  {
-    title: 'Detours with no accountability.',
-    body: 'Vehicles take unofficial routes. Personal errands on company time. You find out when the fuel bill arrives.',
-    fix: 'Geofence any zone. The second a vehicle crosses the boundary, you know. Timestamped, logged, irrefutable.',
-    tag: 'Geofencing',
-  },
+  { title: "You call. They don't answer.", body: "Tracking 10 vehicles means 10 phone calls per hour. You never actually know where they are — you know where they said they were.", fix: "Live GPS positions updated every 5 seconds. No calls. No guessing. Every vehicle pinned on a map, right now.", tag: 'Location Tracking' },
+  { title: 'Fuel receipts in a shoebox.', body: 'Month-end means three days reconstructing fuel spend from paper receipts, driver claims, and gut feeling. Leakage is invisible.', fix: 'Every litre logged automatically per trip. Anomalies flagged instantly. Your fuel budget is finally visible.', tag: 'Fuel Analytics' },
+  { title: 'You find out after the accident.', body: 'Speeding, harsh braking, low fuel — you only hear about it when something breaks. By then, the damage is done.', fix: 'Real-time alerts the moment a threshold is crossed. You intervene before it becomes an incident.', tag: 'Smart Alerts' },
+  { title: 'No idea who your worst driver is.', body: "Everyone says they drive fine. You have no data to argue. The reckless driver keeps driving until the inevitable happens.", fix: "Every driver scored per trip — speed, braking, idle time. The leaderboard doesn't lie.", tag: 'Driver Scorecards' },
+  { title: 'Monthly reports take days.', body: 'Your manager wants a fleet summary. You spend three days copying numbers from spreadsheets into slides. Then they change a date.', fix: 'Reports generated automatically. PDF ready in one click. Always accurate, always current.', tag: 'Automated Reports' },
+  { title: 'Detours with no accountability.', body: 'Vehicles take unofficial routes. Personal errands on company time. You find out when the fuel bill arrives.', fix: 'Geofence any zone. The second a vehicle crosses the boundary, you know. Timestamped, logged, irrefutable.', tag: 'Geofencing' },
 ]
 
 const MapVisual = () => (
@@ -118,170 +90,135 @@ const AlertVisual = () => (
 const AgentVisual = () => (
   <div style={{ width: '100%', height: '100%', background: '#0f172a', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
     {[
-      { role: 'user', text: "Which vehicle has the lowest fuel right now?" },
-      { role: 'agent', text: "Vehicle-05 (TN 33 EF 9012) is at 8% fuel — critically low. It's moving near Peelamedu. Recommend immediate refuelling stop." },
-      { role: 'user', text: "How many alerts fired this week?" },
-      { role: 'agent', text: "23 alerts total — 4 critical, 11 high, 8 medium. Fuel-related alerts account for 52% of all incidents." },
+      { role: 'user', msg: 'Which vehicle has the lowest fuel right now?' },
+      { role: 'agent', msg: 'Vehicle-05 is at 8% fuel — TN 33 EF 9012, currently near Gandhipuram. Recommend immediate refuel stop.' },
+      { role: 'user', msg: 'Who was driving vehicle-3 at 2pm yesterday?' },
+      { role: 'agent', msg: 'Driver-3 (Ramesh K.) was operating vehicle-3 at 14:00. Trip logged: RS Puram → Peelamedu, 18.4 km.' },
     ].map((m, i) => (
       <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-        <div style={{
-          maxWidth: '82%', padding: '9px 13px',
-          borderRadius: m.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-          background: m.role === 'user' ? '#0d9488' : 'rgba(255,255,255,0.05)',
-          border: m.role === 'agent' ? '1px solid rgba(255,255,255,0.07)' : 'none',
-          fontSize: 12, color: m.role === 'user' ? '#fff' : '#cbd5e1', lineHeight: 1.55,
-        }}>
-          {m.text}
-        </div>
+        <div style={{ maxWidth: '82%', background: m.role === 'user' ? 'rgba(13,148,136,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${m.role === 'user' ? 'rgba(13,148,136,0.25)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 10, padding: '8px 12px', fontSize: 11, color: m.role === 'user' ? '#5eead4' : '#cbd5e1', lineHeight: 1.55 }}>{m.msg}</div>
       </div>
     ))}
-    <div style={{ display: 'flex', gap: 8, marginTop: 'auto', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, padding: '8px 12px', alignItems: 'center' }}>
-      <span style={{ fontSize: 11, color: '#334155', flex: 1 }}>Ask about your fleet...</span>
-      <div style={{ width: 24, height: 24, borderRadius: 6, background: '#0d9488', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ width: 0, height: 0, borderTop: '5px solid transparent', borderBottom: '5px solid transparent', borderLeft: '8px solid white', marginLeft: 2 }} />
-      </div>
-    </div>
   </div>
 )
 
 export default function Home() {
   const navigate = useNavigate()
-  const [scrollY, setScrollY] = useState(0)
-  const [flipped, setFlipped] = useState<Record<number, boolean>>({})
   const statsSection = useInView()
-  const v1 = useCounter(40, statsSection.inView)
-  const v2 = useCounter(3, statsSection.inView, 1200)
-  const v3 = useCounter(60, statsSection.inView)
-  const v4 = useCounter(10, statsSection.inView, 1400)
+  const v1 = useCounter(23, statsSection.inView)
+  const v2 = useCounter(3, statsSection.inView)
+  const v3 = useCounter(68, statsSection.inView)
+  const v4 = useCounter(4, statsSection.inView)
+  const [flipped, setFlipped] = useState<Record<number, boolean>>({})
+  const [contactForm, setContactForm] = useState({ name: '', email: '', message: '' })
+  const [contactSent, setContactSent] = useState(false)
+  const [contactLoading, setContactLoading] = useState(false)
+  const [contactError, setContactError] = useState('')
 
-  useEffect(() => {
-    const fn = () => setScrollY(window.scrollY)
-    window.addEventListener('scroll', fn)
-    return () => window.removeEventListener('scroll', fn)
-  }, [])
+  const goToDashboard = () => navigate('/login')
 
   return (
-    <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#fafaf9', color: '#0f172a', overflowX: 'hidden' }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono&display=swap" rel="stylesheet" />
-
+    <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#fff', minHeight: '100vh' }}>
       <style>{`
-        @keyframes mapPulse { 0%{box-shadow:0 0 0 0 currentColor} 70%{box-shadow:0 0 0 10px transparent} 100%{box-shadow:0 0 0 0 transparent} }
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display&display=swap');
+        @keyframes mapPulse { 0%{transform:scale(1);opacity:1} 70%{transform:scale(3);opacity:0} 100%{transform:scale(1);opacity:0} }
         @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        @keyframes slideUp { from{opacity:0;transform:translateY(40px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes marquee { from{transform:translateX(0)} to{transform:translateX(-50%)} }
-        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
-        .card-flip { perspective:1200px; cursor:pointer; }
-        .card-inner { position:relative; width:100%; height:100%; transition:transform 0.65s cubic-bezier(0.4,0,0.2,1); transform-style:preserve-3d; }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:none} }
+        .btn-primary { background:#0d9488;color:#fff;border:none;padding:14px 28px;borderRadius:10px;fontSize:14px;fontWeight:600;cursor:pointer;fontFamily:inherit;transition:all 0.2s; }
+        .btn-primary:hover { background:#0f766e;transform:translateY(-1px); }
+        .btn-outline { background:transparent;color:#0d9488;border:1.5px solid #0d9488;padding:13px 28px;borderRadius:10px;fontSize:14px;fontWeight:600;cursor:pointer;fontFamily:inherit;transition:all 0.2s; }
+        .btn-outline:hover { background:#f0fdf9; }
+        .social-btn { display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px 16px;border:1.5px solid #e5e7eb;borderRadius:10px;background:#fff;fontSize:14px;fontWeight:500;color:#374151;cursor:pointer;fontFamily:inherit;transition:all 0.2s; }
+        .social-btn:hover { border-color:#d1d5db;background:#f9fafb; }
+        .auth-input { width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;borderRadius:10px;fontSize:14px;fontFamily:inherit;color:#0f172a;outline:none;transition:border 0.2s;box-sizing:border-box; }
+        .auth-input:focus { border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,0.08); }
+        .auth-btn-primary { width:100%;padding:13px;background:#0d9488;color:#fff;border:none;borderRadius:10px;fontSize:15px;fontWeight:600;cursor:pointer;fontFamily:inherit;transition:all 0.2s; }
+        .auth-btn-primary:hover { background:#0f766e; }
+        .auth-link { color:#0d9488;fontWeight:600;cursor:pointer; }
+        .auth-link:hover { textDecoration:underline; }
+        .otp-input { width:46px;height:54px;textAlign:center;fontSize:22px;fontWeight:700;border:2px solid #e5e7eb;borderRadius:10px;outline:none;fontFamily:inherit;color:#0f172a;transition:all 0.2s; }
+        .otp-input:focus { border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,0.1); }
+        .card-flip { perspective:1000px;cursor:pointer; }
+        .card-inner { position:relative;width:100%;height:100%;transition:transform 0.55s cubic-bezier(.4,0,.2,1);transform-style:preserve-3d; }
         .card-inner.flipped { transform:rotateY(180deg); }
-        .card-face { position:absolute; width:100%; height:100%; backface-visibility:hidden; -webkit-backface-visibility:hidden; border-radius:16px; padding:28px; display:flex; flex-direction:column; }
+        .card-face { position:absolute;inset:0;backface-visibility:hidden;border-radius:16px;padding:28px;display:flex;flex-direction:column; }
         .card-back { transform:rotateY(180deg); }
-        .nav-link { color:#64748b; font-size:14px; text-decoration:none; transition:color 0.2s; }
-        .nav-link:hover { color:#0d9488; }
-        .btn-primary { background:#0f172a; color:#fff; border:none; padding:14px 30px; border-radius:10px; font-size:15px; font-weight:600; cursor:pointer; font-family:inherit; transition:all 0.2s; }
-        .btn-primary:hover { background:#1e293b; transform:translateY(-1px); box-shadow:0 8px 24px rgba(15,23,42,0.25); }
-        .btn-secondary { background:transparent; color:#0f172a; border:1.5px solid #cbd5e1; padding:14px 30px; border-radius:10px; font-size:15px; font-weight:500; cursor:pointer; font-family:inherit; text-decoration:none; display:inline-block; transition:all 0.2s; }
-        .btn-secondary:hover { border-color:#0d9488; color:#0d9488; }
-        .pain-card { transition:all 0.3s ease; }
-        .pain-card:hover { box-shadow:0 20px 60px rgba(0,0,0,0.1); transform:translateY(-3px); }
-        .stat-card { transition:transform 0.2s ease; }
+        .pain-card:hover .card-inner:not(.flipped) { transform:translateY(-4px); }
+        .feature-card { transition:transform 0.2s; }
+        .feature-card:hover { transform:translateY(-2px); }
+        .stat-card { transition:transform 0.2s; }
         .stat-card:hover { transform:translateY(-4px); }
-        .feature-visual { transition:transform 0.4s ease; }
-        .feature-card:hover .feature-visual { transform:scale(1.015); }
+        .feature-visual { background:rgba(255,255,255,0.02); }
+        nav a { text-decoration:none; }
+        .contact-input { width:100%;padding:12px 16px;border:1.5px solid #e2e8f0;borderRadius:10px;fontSize:14px;fontFamily:inherit;color:#0f172a;outline:none;transition:border 0.2s;box-sizing:border-box;background:#fff; }
+        .contact-input:focus { border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,0.08); }
       `}</style>
 
       {/* NAV */}
-      <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-        background: scrollY > 50 ? 'rgba(250,250,249,0.92)' : 'transparent',
-        backdropFilter: scrollY > 50 ? 'blur(16px)' : 'none',
-        borderBottom: scrollY > 50 ? '1px solid rgba(0,0,0,0.06)' : 'none',
-        transition: 'all 0.35s ease',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '18px 56px',
-      }}>
-        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: '#0d9488', letterSpacing: '-0.5px' }}>FleetPulse</div>
-        <div style={{ display: 'flex', gap: 36, alignItems: 'center' }}>
-          <a href="#problem" className="nav-link">The Problem</a>
-          <a href="#solution" className="nav-link">Solution</a>
-          <a href="#results" className="nav-link">Results</a>
-        <button className="btn-secondary" style={{ padding: '10px 20px', fontSize: 14 }} onClick={() => navigate('/signup')}>Sign up</button>
-        <button className="btn-primary" style={{ padding: '10px 22px', fontSize: 14 }} onClick={() => navigate('/login')}>Sign in</button>        </div>
+      <nav style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #f1f5f9', padding: '0 56px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
+        <div style={{ fontFamily: "'DM Serif Display', serif", color: '#0d9488', fontSize: 22, cursor: 'pointer' }} onClick={() => navigate('/')}>FleetPulse</div>
+        <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
+          {[['#problems', 'Problems'], ['#solution', 'Platform'], ['#results', 'Results'], ['#contact', 'Contact']].map(([href, label]) => (
+            <a key={href} href={href} style={{ fontSize: 14, color: '#475569', fontWeight: 500, textDecoration: 'none' }}>{label}</a>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button className="btn-outline" style={{ padding: '9px 20px', fontSize: 13 }} onClick={() => navigate('/login')}>Sign in</button>
+          <button className="btn-primary" style={{ padding: '9px 20px', fontSize: 13 }} onClick={goToDashboard}>Get started</button>
+        </div>
       </nav>
 
       {/* HERO */}
-      <div style={{
-        minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '130px 56px 80px', position: 'relative', overflow: 'hidden',
-        background: 'linear-gradient(170deg, #fafaf9 0%, #f0fdf9 45%, #fafaf9 100%)',
-      }}>
-        <div style={{ position: 'absolute', top: '10%', right: '-5%', width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(13,148,136,0.07) 0%, transparent 70%)', animation: 'float 8s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', bottom: '5%', left: '-8%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 70%)', animation: 'float 10s ease-in-out infinite 3s' }} />
-
-        <div style={{ textAlign: 'center', maxWidth: 860, position: 'relative', animation: 'slideUp 0.9s ease' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #d1fae5', borderRadius: 100, padding: '7px 18px', marginBottom: 36, boxShadow: '0 2px 12px rgba(13,148,136,0.08)' }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', animation: 'pulse-dot 2s infinite' }} />
-            <span style={{ fontSize: 13, color: '#059669', fontWeight: 500 }}>Real-time Fleet Intelligence — Built for Transport Managers</span>
-          </div>
-
-          <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 'clamp(44px, 6.5vw, 82px)', lineHeight: 1.05, marginBottom: 28, letterSpacing: '-2.5px', color: '#0f172a' }}>
-            Your fleet is running.<br />
-            <span style={{ color: '#0d9488', fontStyle: 'italic' }}>Are you in control?</span>
-          </h1>
-
-          <p style={{ fontSize: 19, color: '#64748b', lineHeight: 1.75, maxWidth: 600, margin: '0 auto 44px', fontWeight: 300 }}>
-            Most transport managers run their fleet on phone calls and spreadsheets. FleetPulse replaces that chaos with live GPS, intelligent alerts, and an AI agent that answers questions about your fleet instantly.
-          </p>
-
-          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button className="btn-primary" onClick={() => navigate('/dashboard')}>See the Live Dashboard</button>
-            <a href="#problem" className="btn-secondary">See the problem first</a>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 12, marginTop: 72, flexWrap: 'wrap', justifyContent: 'center' }}>
-          {[
-            { label: 'Vehicles Live', value: '10', color: '#10b981' },
-            { label: 'Active Alerts', value: '5', color: '#ef4444' },
-            { label: 'Avg Speed', value: '47 km/h', color: '#6366f1' },
-            { label: 'Avg Fuel', value: '68%', color: '#f59e0b' },
-            { label: 'Drivers Online', value: '8', color: '#0d9488' },
-          ].map(s => (
-            <div key={s.label} style={{ background: '#fff', border: '1px solid #f1f5f9', borderRadius: 14, padding: '16px 24px', textAlign: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.05)' }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: s.color, fontFamily: "'DM Mono', monospace", letterSpacing: '-0.5px' }}>{s.value}</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, fontWeight: 500 }}>{s.label}</div>
+      <div style={{ padding: '120px 56px 100px', background: 'linear-gradient(160deg, #fafffe 0%, #f0fdfa 50%, #fafaf9 100%)', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: -80, right: -80, width: 480, height: 480, borderRadius: '50%', background: 'radial-gradient(circle, rgba(13,148,136,0.07) 0%, transparent 70%)' }} />
+        <div style={{ maxWidth: 1140, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 80, alignItems: 'center' }}>
+          <div style={{ animation: 'fadeUp 0.7s ease both' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#f0fdf9', border: '1px solid #99f6e4', borderRadius: 100, padding: '6px 14px', marginBottom: 28 }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', animation: 'pulse-dot 2s infinite' }} />
+              <span style={{ fontSize: 12, color: '#0d9488', fontWeight: 600, letterSpacing: 0.5 }}>Live · 10 vehicles tracked right now</span>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* MARQUEE */}
-      <div style={{ background: '#0f172a', padding: '16px 0', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', animation: 'marquee 28s linear infinite', whiteSpace: 'nowrap' }}>
-          {[...Array(2)].map((_, r) => (
-            <div key={r} style={{ display: 'flex', gap: 56, paddingRight: 56 }}>
-              {['Live GPS Tracking', 'Smart Alerts', 'Fuel Analytics', 'Driver Scorecards', 'Geofencing', 'AI Fleet Agent', 'Automated Reports', 'Real-time Dashboard', 'Trip History', 'Driver Leaderboard'].map(t => (
-                <span key={t} style={{ color: '#334155', fontSize: 11, fontWeight: 600, letterSpacing: 2.5 }}>— {t.toUpperCase()}</span>
+            <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 'clamp(40px, 5vw, 68px)', color: '#0f172a', lineHeight: 1.08, letterSpacing: '-2px', marginBottom: 24 }}>
+              Your fleet.<br />
+              <span style={{ color: '#0d9488' }}>Under control.</span><br />
+              Right now.
+            </h1>
+            <p style={{ fontSize: 18, color: '#64748b', lineHeight: 1.7, marginBottom: 40, fontWeight: 300, maxWidth: 480 }}>
+              Real-time GPS tracking, fuel anomaly detection, driver scorecards, and an AI agent — built for logistics businesses in Tamil Nadu.
+            </p>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              <button className="btn-primary" style={{ fontSize: 15, padding: '15px 32px' }} onClick={goToDashboard}>
+                See live dashboard →
+              </button>
+              <button className="btn-outline" style={{ fontSize: 15, padding: '15px 32px' }} onClick={() => document.getElementById('solution')?.scrollIntoView({ behavior: 'smooth' })}>
+                How it works
+              </button>
+            </div>
+            <div style={{ marginTop: 40, display: 'flex', gap: 32 }}>
+              {[['10', 'Vehicles tracked'], ['5s', 'Update interval'], ['24/7', 'Monitoring']].map(([v, l]) => (
+                <div key={l}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', fontFamily: "'DM Serif Display', serif" }}>{v}</div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{l}</div>
+                </div>
               ))}
             </div>
-          ))}
+          </div>
+          <div style={{ height: 420, animation: 'fadeUp 0.7s 0.15s ease both', opacity: 0, animationFillMode: 'forwards' }}>
+            <MapVisual />
+          </div>
         </div>
       </div>
 
-      {/* PROBLEM SECTION */}
-      <div id="problem" style={{ padding: '110px 56px', background: '#fafaf9' }}>
+      {/* PAIN POINTS */}
+      <div id="problems" style={{ padding: '110px 56px', background: '#fafaf9' }}>
         <div style={{ maxWidth: 1140, margin: '0 auto' }}>
-          <div style={{ marginBottom: 72 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 4, color: '#ef4444', marginBottom: 18, textTransform: 'uppercase' }}>The Reality</div>
-            <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 'clamp(34px, 4vw, 56px)', lineHeight: 1.1, color: '#0f172a', maxWidth: 640, letterSpacing: '-1.5px' }}>
-              A day in the life of a transport manager{' '}
-              <span style={{ color: '#ef4444', fontStyle: 'italic' }}>without</span> FleetPulse
+          <div style={{ marginBottom: 64 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 4, color: '#ef4444', marginBottom: 18, textTransform: 'uppercase' }}>The Problem</div>
+            <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 'clamp(32px, 4vw, 52px)', color: '#0f172a', lineHeight: 1.1, maxWidth: 640, letterSpacing: '-1.5px' }}>
+              Running a fleet without real-time data feels like this.
             </h2>
-            <p style={{ color: '#64748b', marginTop: 18, fontSize: 17, maxWidth: 500, lineHeight: 1.65, fontWeight: 300 }}>
-              Flip each card to see how FleetPulse changes the story. Every one of these is a real pain point reported by fleet managers across India.
-            </p>
+            <p style={{ color: '#64748b', marginTop: 16, fontSize: 15, fontWeight: 300 }}>Click a card to see how FleetPulse solves it.</p>
           </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 22 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
             {painPoints.map((p, i) => (
               <div key={i} className="card-flip pain-card" style={{ height: 230 }} onClick={() => setFlipped(prev => ({ ...prev, [i]: !prev[i] }))}>
                 <div className={`card-inner ${flipped[i] ? 'flipped' : ''}`}>
@@ -319,23 +256,18 @@ export default function Home() {
               Everything you need to run a fleet with confidence
             </h2>
           </div>
-
           <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
             {[
               { tag: 'Live Intelligence', title: 'A map that thinks', body: "Not just dots on a map. Every marker carries live speed, fuel level, driver ID, and alert status. Click any vehicle for a full snapshot — no page load, no refresh.", visual: 'map' },
               { tag: 'Predictive Alerts', title: 'Know before it happens', body: "FleetPulse monitors 12 parameters simultaneously. Fuel dropping below threshold, speed crossing the limit, vehicle leaving a zone — alerts reach you in under 3 seconds.", visual: 'alert' },
               { tag: 'AI Fleet Agent', title: 'Ask your fleet a question', body: "Type in plain English. \"Which vehicle has the lowest fuel?\" \"Who was driving vehicle-3 at 2pm?\" The agent searches, reasons, and responds — no dashboard navigation needed.", visual: 'agent' },
             ].map((f, i) => (
-              <div key={i} className="feature-card" style={{
-                display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0,
-                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
-                borderRadius: 20, overflow: 'hidden', minHeight: 340,
-              }}>
+              <div key={i} className="feature-card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 20, overflow: 'hidden', minHeight: 340 }}>
                 <div style={{ padding: '52px 48px', display: 'flex', flexDirection: 'column', justifyContent: 'center', order: i % 2 === 0 ? 0 : 1 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 3, color: '#0d9488', textTransform: 'uppercase', marginBottom: 20 }}>{f.tag}</div>
                   <h3 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 36, color: '#f1f5f9', lineHeight: 1.2, marginBottom: 18, letterSpacing: '-0.5px' }}>{f.title}</h3>
                   <p style={{ fontSize: 15, color: '#94a3b8', lineHeight: 1.75, fontWeight: 300, maxWidth: 400 }}>{f.body}</p>
-                  <button className="btn-primary" style={{ marginTop: 32, alignSelf: 'flex-start', fontSize: 13, padding: '10px 22px', background: '#0d9488' }} onClick={() => navigate('/dashboard')}>
+                  <button className="btn-primary" style={{ marginTop: 32, alignSelf: 'flex-start', fontSize: 13, padding: '10px 22px', background: '#0d9488' }} onClick={goToDashboard}>
                     See it live
                   </button>
                 </div>
@@ -382,7 +314,7 @@ export default function Home() {
           </h2>
           <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 19, marginBottom: 44, fontWeight: 300 }}>Stop guessing. Start knowing.</p>
           <button
-            onClick={() => navigate('/dashboard')}
+            onClick={goToDashboard}
             style={{ background: '#fff', color: '#0d9488', border: 'none', padding: '18px 44px', borderRadius: 12, fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s' }}
             onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 12px 40px rgba(0,0,0,0.2)' }}
             onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}
@@ -392,10 +324,134 @@ export default function Home() {
         </div>
       </div>
 
+      {/* CONTACT */}
+      <div id="contact" style={{ padding: '110px 56px', background: '#fff' }}>
+        <div style={{ maxWidth: 1140, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 80, alignItems: 'start' }}>
+
+          {/* Left — info */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 4, color: '#0d9488', marginBottom: 18, textTransform: 'uppercase' }}>Contact</div>
+            <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 'clamp(28px, 3vw, 44px)', color: '#0f172a', lineHeight: 1.15, letterSpacing: '-1px', marginBottom: 20 }}>
+              Get in touch with the team
+            </h2>
+            <p style={{ fontSize: 15, color: '#64748b', lineHeight: 1.75, fontWeight: 300, marginBottom: 40 }}>
+              Have questions about FleetPulse or want to see a live demo? Drop us a message and we'll get back to you.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              {[
+                {
+                  icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+                  label: 'Location',
+                  value: 'Coimbatore, Tamil Nadu',
+                },
+                {
+                  icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
+                  label: 'Email',
+                  value: 'hello@fleetpulse.io',
+                },
+                {
+                  icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22"/></svg>,
+                  label: 'GitHub',
+                  value: 'github.com/fleetpulse/fleet-management-system',
+                },
+              ].map(({ icon, label, value }) => (
+                <div key={label} style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f0fdf9', border: '1px solid #ccfbf1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {icon}
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>{label}</p>
+                    <p style={{ fontSize: 14, color: '#374151' }}>{value}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+          </div>
+
+          {/* Right — form */}
+          <div style={{ background: '#fafaf9', border: '1px solid #f1f5f9', borderRadius: 20, padding: 40 }}>
+            {contactSent ? (
+              <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#f0fdf9', border: '1px solid #99f6e4', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <h3 style={{ fontSize: 20, fontWeight: 600, color: '#0f172a', marginBottom: 10 }}>Message sent!</h3>
+                <p style={{ fontSize: 14, color: '#64748b' }}>We'll get back to you within 24 hours.</p>
+                <button className="btn-primary" style={{ marginTop: 24, fontSize: 13, padding: '10px 24px' }} onClick={() => { setContactSent(false); setContactError('') }}>Send another</button>
+              </div>
+            ) : (
+              <>
+                <h3 style={{ fontSize: 20, fontWeight: 600, color: '#0f172a', marginBottom: 8 }}>Send us a message</h3>
+                <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 28 }}>We typically respond within a day.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Your name</label>
+                    <input className="contact-input" type="text" placeholder="Rajesh Kumar" value={contactForm.name} onChange={e => setContactForm(p => ({ ...p, name: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Email address</label>
+                    <input className="contact-input" type="email" placeholder="you@company.com" value={contactForm.email} onChange={e => setContactForm(p => ({ ...p, email: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Message</label>
+                    <textarea
+                      className="contact-input"
+                      placeholder="Tell us about your fleet or what you'd like to know..."
+                      value={contactForm.message}
+                      onChange={e => setContactForm(p => ({ ...p, message: e.target.value }))}
+                      rows={5}
+                      style={{ resize: 'vertical' }}
+                    />
+                  </div>
+                  {contactError && (
+                    <p style={{ fontSize: 13, color: '#ef4444', marginTop: -4 }}>{contactError}</p>
+                  )}
+                  <button
+                    className="btn-primary"
+                    style={{ width: '100%', marginTop: 4, opacity: contactLoading ? 0.7 : 1 }}
+                    disabled={contactLoading}
+                    onClick={async () => {
+                      setContactError('')
+                      if (!contactForm.name || !contactForm.email || !contactForm.message) {
+                        setContactError('Please fill in all fields.')
+                        return
+                      }
+                      setContactLoading(true)
+                      try {
+                        const res = await fetch(`${API_BASE}/contact`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(contactForm),
+                        })
+                        if (!res.ok) throw new Error('Failed')
+                        setContactSent(true)
+                        setContactForm({ name: '', email: '', message: '' })
+                      } catch {
+                        setContactError('Something went wrong. Please try again.')
+                      } finally {
+                        setContactLoading(false)
+                      }
+                    }}
+                  >
+                    {contactLoading ? 'Sending...' : 'Send message'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* FOOTER */}
       <div style={{ background: '#0a0f1e', padding: '28px 56px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontFamily: "'DM Serif Display', serif", color: '#0d9488', fontSize: 20 }}>FleetPulse</div>
         <div style={{ color: '#334155', fontSize: 13 }}>Real-time Fleet Intelligence Platform — PSG Tech</div>
+        <div style={{ display: 'flex', gap: 20 }}>
+          <span style={{ fontSize: 13, color: '#334155', cursor: 'pointer' }} onClick={() => navigate('/login')}>Sign in</span>
+          <span style={{ fontSize: 13, color: '#0d9488', cursor: 'pointer' }} onClick={goToDashboard}>Get started</span>
+        </div>
       </div>
     </div>
   )

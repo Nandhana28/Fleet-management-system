@@ -1,5 +1,6 @@
 import { Vehicle } from '../../types/vehicle'
 
+
 interface Props {
   vehicles: Vehicle[]
   alertCount: number
@@ -7,7 +8,7 @@ interface Props {
 
 export default function Sidebar({ vehicles, alertCount }: Props) {
   return (
-    <div className="w-64 bg-gray-50 border-r border-gray-200 p-4 overflow-y-auto flex-shrink-0">
+    <div className="relative z-[1050] w-64 bg-gray-50 border-r border-gray-200 p-4 overflow-y-auto flex-shrink-0">
       <p className="text-sm text-gray-500 mb-4">
         Active Alerts:{' '}
         <span className={alertCount > 0 ? 'text-red-500 font-semibold' : 'text-gray-400'}>

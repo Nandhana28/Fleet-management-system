@@ -3,10 +3,16 @@ kind: ConfigMap
 metadata:
   name: fleetpulse-config
 data:
-  AWS_REGION: "ap-south-1"
+  AWS_REGION: {{ .Values.aws.region | default "ap-south-1" | quote }}
+  USE_LOCALSTACK: {{ .Values.env.useLocalstack | default "false" | quote }}
+  APP_ENV: {{ .Values.env.appEnv | default "production" | quote }}
+  FRONTEND_URL: {{ .Values.env.frontendUrl | default "http://localhost:5173" | quote }}
   DYNAMODB_VEHICLES_TABLE: "Vehicles"
   DYNAMODB_TRIPS_TABLE: "Trips"
   DYNAMODB_ALERTS_TABLE: "Alerts"
   SQS_QUEUE_URL: "https://sqs.ap-south-1.amazonaws.com/746491203215/fleetpulse-gps-queue"
   REDIS_HOST: "fleetpulse-redis-service"
   REDIS_PORT: "6379"
+  REDIS_URL: "redis://fleetpulse-redis-service:6379/0"
+  CELERY_BROKER_URL: "redis://fleetpulse-redis-service:6379/1"
+  LOCALSTACK_ENDPOINT: "http://localstack:4566"

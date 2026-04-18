@@ -7,7 +7,7 @@ celery = Celery(
     "fleetpulse",
     broker=settings.celery_broker_url,
     backend=settings.redis_url,
-    include=["tasks.reports", "tasks.alerts"],
+    include=["tasks.reports", "tasks.alerts", "tasks.kinesis_processor"],
 )
 
 celery.conf.beat_schedule = {
@@ -18,6 +18,14 @@ celery.conf.beat_schedule = {
     "unresolved-alerts-every-5min": {
         "task": "tasks.alerts.batch_unresolved_alerts",
         "schedule": crontab(minute="*/5"),
+    },
+    "night-movement-every-15min": {
+        "task": "tasks.alerts.check_night_movement",
+        "schedule": crontab(minute="*/15"),
+    },
+    "kinesis-stream-every-10sec": {
+        "task": "tasks.kinesis_processor.consume_kinesis_stream",
+        "schedule": 10.0,  # Every 10 seconds
     },
 }
 

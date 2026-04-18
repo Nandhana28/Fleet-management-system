@@ -1,20 +1,35 @@
-import boto3
+import os
 import json
-
-sns_client = boto3.client("sns", region_name="ap-south-1")
-SNS_TOPIC_ARN = "arn:aws:sns:ap-south-1:746491203215:fleetpulse-alerts"
+import boto3
 
 
-def publish_alert(alert: dict) -> dict:
-    """Publish anomaly alert to SNS topic"""
-    try:
-        response = sns_client.publish(
-            TopicArn=SNS_TOPIC_ARN,
-            Message=json.dumps(alert),
-            Subject=f"FleetPulse Alert — {alert['anomaly_type']}",
+def _get_sns():
+    if os.environ.get('USE_LOCALSTACK', 'true').lower() == 'true':
+        return boto3.client('sns',
+            endpoint_url=os.environ.get('LOCALSTACK_ENDPOINT', 'http://localhost:4566'),
+            region_name='ap-south-1',
+            aws_access_key_id='test',
+            aws_secret_access_key='test',
         )
-        print(f"✅ SNS published: {response['MessageId']}")
-        return {"success": True, "message_id": response["MessageId"]}
+    return boto3.client('sns', region_name='ap-south-1')
+
+
+def publish_alert(alert: dict):
+    """Publish alert to SNS topic."""
+    try:
+        sns = _get_sns()
+        topic_arn = os.environ.get(
+            'SNS_TOPIC_ARN',
+            'arn:aws:sns:ap-south-1:000000000000:fleetpulse-alerts'
+        )
+        message = (
+            f"FleetPulse Alert\n"
+            f"Type: {alert.get('alert_type', alert.get('type', 'Unknown'))}\n"
+            f"Vehicle: {alert.get('vehicle_id', 'Unknown')}\n"
+            f"Severity: {alert.get('severity', 'Unknown')}\n"
+            f"Details: {alert.get('message', alert.get('details', ''))}"
+        )
+        sns.publish(TopicArn=topic_arn, Message=message, Subject='FleetPulse Alert')
+        print(f"[SNS] Alert published for {alert.get('vehicle_id')}")
     except Exception as e:
-        print(f"❌ SNS error: {str(e)}")
-        return {"success": False, "error": str(e)}
+        print(f"[SNS] Error: {e}")  

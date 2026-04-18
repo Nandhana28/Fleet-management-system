@@ -1,5 +1,7 @@
 import json
-import redis
+import os
+from typing import AsyncGenerator
+
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import tool
@@ -8,7 +10,7 @@ from langgraph.prebuilt import ToolNode
 from typing import TypedDict, Annotated, Sequence
 import operator
 
-from tools import (
+from agent.tools import (
     query_vehicle_location,
     get_trip_history,
     get_active_alerts,
@@ -16,93 +18,102 @@ from tools import (
     generate_fuel_report,
     update_vehicle_status,
 )
+from agent.prompts import FLEET_SYSTEM_PROMPT
+from agent.config import (
+    GROQ_API_KEY,
+    GROQ_MODEL,
+    GROQ_MAX_TOKENS,
+    GROQ_TEMPERATURE,
+    GROQ_TOP_P,
+    ANTHROPIC_API_KEY,
+    ANTHROPIC_MODEL,
+    REDIS_URL,
+    MEMORY_TTL,
+    MAX_MEMORY_TURNS,
+)
 
-# ─── Redis Memory Setup ───────────────────────────────────────────────────────
-redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
-MEMORY_TTL = 3600  # 1 hour
-MAX_MEMORY_TURNS = 10  # Remember last 10 turns
+
+def _get_redis():
+    try:
+        import redis
+        client = redis.from_url(REDIS_URL, decode_responses=True)
+        client.ping()
+        return client
+    except Exception:
+        return None
 
 
 def save_to_memory(session_id: str, role: str, content: str):
-    """Save conversation turn to Redis — skip if Redis not available"""
+    client = _get_redis()
+    if not client:
+        return
     try:
         key = f"agent:memory:{session_id}"
-        memory = get_from_memory(session_id)
+        data = client.get(key)
+        memory = json.loads(data) if data else []
         memory.append({"role": role, "content": content})
-        if len(memory) > MAX_MEMORY_TURNS:
-            memory = memory[-MAX_MEMORY_TURNS:]
-        redis_client.setex(key, MEMORY_TTL, json.dumps(memory))
+        memory = memory[-MAX_MEMORY_TURNS:]
+        client.setex(key, MEMORY_TTL, json.dumps(memory))
     except Exception:
-        pass  # Redis not available — skip memory
+        pass
 
 
 def get_from_memory(session_id: str) -> list:
-    """Get conversation history from Redis — return empty if not available"""
+    client = _get_redis()
+    if not client:
+        return []
     try:
         key = f"agent:memory:{session_id}"
-        data = redis_client.get(key)
+        data = client.get(key)
         return json.loads(data) if data else []
     except Exception:
-        return []  # Redis not available — return empty
+        return []
 
 
-# ─── Define LangChain Tools ───────────────────────────────────────────────────
 @tool
 def tool_query_vehicle_location(vehicle_id: str) -> str:
     """Query the latest GPS location, speed and fuel level of a vehicle"""
-    result = query_vehicle_location(vehicle_id)
-    return json.dumps(result)
-
+    return json.dumps(query_vehicle_location(vehicle_id))
 
 @tool
 def tool_get_trip_history(vehicle_id: str, days: int = 7) -> str:
     """Get the trip history for a vehicle for the last N days"""
-    result = get_trip_history(vehicle_id, days)
-    return json.dumps(result, default=str)
-
+    return json.dumps(get_trip_history(vehicle_id, days), default=str)
 
 @tool
 def tool_get_active_alerts() -> str:
     """Get all unresolved anomaly alerts — overspeeding, fuel theft, route deviation"""
-    result = get_active_alerts()
-    return json.dumps(result, default=str)
-
+    return json.dumps(get_active_alerts(), default=str)
 
 @tool
 def tool_send_whatsapp_alert(phone: str, message: str) -> str:
     """Send a WhatsApp or SMS alert to a phone number"""
-    result = send_whatsapp_alert(phone, message)
-    return json.dumps(result)
-
+    return json.dumps(send_whatsapp_alert(phone, message))
 
 @tool
 def tool_generate_fuel_report(vehicle_id: str) -> str:
     """Generate a fuel consumption report for a vehicle"""
-    result = generate_fuel_report(vehicle_id)
-    return json.dumps(result, default=str)
-
+    return json.dumps(generate_fuel_report(vehicle_id), default=str)
 
 @tool
 def tool_update_vehicle_status(vehicle_id: str, status: str) -> str:
     """Update the status of a vehicle — active, inactive, maintenance, emergency"""
-    result = update_vehicle_status(vehicle_id, status)
-    return json.dumps(result)
+    return json.dumps(update_vehicle_status(vehicle_id, status))
 
 
-# ─── Agent State ──────────────────────────────────────────────────────────────
 class AgentState(TypedDict):
     messages: Annotated[Sequence, operator.add]
     session_id: str
 
 
-# ─── Build LangGraph Agent ────────────────────────────────────────────────────
-def build_fleet_agent(api_key: str):
+def build_fleet_agent(api_key: str, use_groq: bool = True):
     """
-    Build the FleetPulse agentic AI using LangGraph
-    Flow: user query → agent thinks → picks tool → executes → returns response
+    Build the fleet agent with LLM and tools.
+    
+    Args:
+        api_key: API key for the LLM provider
+        use_groq: If True, use Groq; if False, try Anthropic Claude
     """
-
-    # All tools available to the agent
     tools = [
         tool_query_vehicle_location,
         tool_get_trip_history,
@@ -112,125 +123,117 @@ def build_fleet_agent(api_key: str):
         tool_update_vehicle_status,
     ]
 
-    # Claude API as LLM backbone
-    llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
-        api_key=api_key,
-        max_tokens=1000,
-    )
-    # Bind tools to LLM
+    if use_groq:
+        # Use Groq as primary LLM
+        llm = ChatGroq(
+            model=GROQ_MODEL,
+            api_key=api_key,
+            max_tokens=GROQ_MAX_TOKENS,
+            temperature=GROQ_TEMPERATURE,
+            top_p=GROQ_TOP_P,
+        )
+    else:
+        # Fallback to Anthropic Claude
+        try:
+            from langchain_anthropic import ChatAnthropic
+            from agent.config import ANTHROPIC_MAX_TOKENS
+            llm = ChatAnthropic(
+                model=ANTHROPIC_MODEL,
+                api_key=api_key,
+                max_tokens=ANTHROPIC_MAX_TOKENS,
+            )
+        except ImportError:
+            raise ImportError("langchain-anthropic not installed. Install with: pip install langchain-anthropic")
+    
     llm_with_tools = llm.bind_tools(tools)
 
-    # System prompt — tells Claude what it is
-    system_prompt = """You are FleetPulse AI, an intelligent fleet management assistant
-for small logistics businesses in Tamil Nadu, India.
-
-You help fleet owners by:
-- Tracking vehicle locations in real time
-- Detecting fuel theft and overspeeding anomalies
-- Generating fuel and trip reports
-- Sending alerts to drivers and owners
-- Managing vehicle statuses
-
-You have access to real AWS DynamoDB data. Always use tools to get real data.
-Be concise, helpful and professional. Respond in simple English.
-When reporting locations, mention the area in Coimbatore if possible."""
-
-    # Agent node — LLM decides what to do
     def agent_node(state: AgentState):
         messages = state["messages"]
         session_id = state.get("session_id", "default")
-
-        # Add system message
-        all_messages = [SystemMessage(content=system_prompt)] + list(messages)
-
-        # Get LLM response
+        all_messages = [SystemMessage(content=FLEET_SYSTEM_PROMPT)] + list(messages)
         response = llm_with_tools.invoke(all_messages)
-
-        # Save to memory
-        if messages:
-            last_msg = messages[-1]
-            if hasattr(last_msg, "content"):
-                save_to_memory(session_id, "user", last_msg.content)
-        save_to_memory(session_id, "assistant", response.content)
-
+        # Only save to memory on the final response (no tool calls pending)
+        has_tool_calls = bool(getattr(response, "tool_calls", None))
+        if not has_tool_calls and response.content:
+            # Find the last HumanMessage in the state (original user question)
+            for msg in reversed(list(messages)):
+                if isinstance(msg, HumanMessage):
+                    save_to_memory(session_id, "user", msg.content)
+                    break
+            save_to_memory(session_id, "assistant", response.content)
         return {"messages": [response]}
 
-    # Decide whether to use tools or end
     def should_continue(state: AgentState):
-        messages = state["messages"]
-        last_message = messages[-1]
-        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        last = state["messages"][-1]
+        if hasattr(last, "tool_calls") and last.tool_calls:
             return "tools"
         return END
 
-    # Build the graph
     tool_node = ToolNode(tools)
     workflow = StateGraph(AgentState)
-
-    # Add nodes
     workflow.add_node("agent", agent_node)
     workflow.add_node("tools", tool_node)
-
-    # Add edges
     workflow.set_entry_point("agent")
     workflow.add_conditional_edges("agent", should_continue)
     workflow.add_edge("tools", "agent")
 
-    # Compile
-    agent = workflow.compile()
-    return agent
+    return workflow.compile()
 
 
-# ─── Query Agent ──────────────────────────────────────────────────────────────
 def query_agent(agent, question: str, session_id: str = "default") -> str:
-    """
-    Send a question to the fleet agent and get a response
-    """
-    # Get conversation history from Redis
     history = get_from_memory(session_id)
-
-    # Build messages with history
     messages = []
-    for turn in history[-5:]:  # Last 5 turns for context
+    for turn in history[-5:]:
         if turn["role"] == "user":
             messages.append(HumanMessage(content=turn["content"]))
         else:
             messages.append(AIMessage(content=turn["content"]))
+    messages.append(HumanMessage(content=question))
+    result = agent.invoke({"messages": messages, "session_id": session_id})
+    return result["messages"][-1].content
 
-    # Add current question
+
+async def stream_agent_response(
+    agent, question: str, session_id: str
+) -> AsyncGenerator[str, None]:
+    history = get_from_memory(session_id)
+    messages = []
+    for turn in history[-5:]:
+        if turn["role"] == "user":
+            messages.append(HumanMessage(content=turn["content"]))
+        else:
+            messages.append(AIMessage(content=turn["content"]))
     messages.append(HumanMessage(content=question))
 
-    # Run agent
-    result = agent.invoke(
-        {
-            "messages": messages,
-            "session_id": session_id,
-        }
-    )
+    try:
+        # Collect tool calls for UI badges; accumulate final text — emit once at end.
+        # This prevents double-text when LangGraph emits multiple agent chunks and
+        # avoids infinite loops via recursion_limit.
+        final_text = None
+        async for chunk in agent.astream(
+            {"messages": messages, "session_id": session_id},
+            config={"recursion_limit": 10},
+        ):
+            if "tools" in chunk:
+                for msg in chunk["tools"].get("messages", []):
+                    tool_name = getattr(msg, "name", None)
+                    if tool_name:
+                        yield f"data: {json.dumps({'type': 'tool', 'content': tool_name})}\n\n"
 
-    # Get final response
-    final_message = result["messages"][-1]
-    return final_message.content
+            if "agent" in chunk:
+                msgs = chunk["agent"].get("messages", [])
+                if msgs:
+                    msg = msgs[-1]
+                    # Only capture text from final agent turns (no pending tool calls)
+                    has_tool_calls = bool(getattr(msg, "tool_calls", None))
+                    if hasattr(msg, "content") and msg.content and not has_tool_calls:
+                        final_text = msg.content  # keep updating — last one wins
 
+        # Emit exactly one text event after the graph finishes
+        if final_text:
+            yield f"data: {json.dumps({'type': 'text', 'content': final_text})}\n\n"
+        yield "data: [DONE]\n\n"
 
-# ─── Main Test ────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    import os
-
-    api_key = os.environ.get("GROQ_API_KEY", "your-api-key-here")
-
-    print("🤖 FleetPulse AI Agent Starting...")
-    agent = build_fleet_agent(api_key)
-
-    # Test questions
-    questions = [
-        "What are all the active alerts right now?",
-        "Where is vehicle-1 currently?",
-        "Generate a fuel report for vehicle-2",
-    ]
-
-    for question in questions:
-        print(f"\n👤 User: {question}")
-        response = query_agent(agent, question)
-        print(f"🤖 Agent: {response}")
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"

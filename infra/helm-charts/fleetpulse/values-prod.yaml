@@ -1,20 +1,36 @@
+# Production overrides — real AWS, higher resources
+
 backend:
   replicas: 3
-  image: fleetpulse-backend
-  tag: stable
-  port: 8000
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
 
 frontend:
-  replicas: 2
-  image: fleetpulse-frontend
-  tag: stable
-  port: 80
+  replicas: 3
 
 agent:
   replicas: 2
-  image: fleetpulse-agent
-  tag: stable
-  port: 8001
 
-redis:
-  replicas: 1
+hpa:
+  backend:
+    minReplicas: 3
+    maxReplicas: 10
+    cpuThreshold: 60
+  frontend:
+    minReplicas: 3
+    maxReplicas: 8
+    cpuThreshold: 60
+
+ingress:
+  enabled: true
+  host: fleetpulse.yourdomain.com
+
+env:
+  useLocalstack: "false"
+  appEnv: "production"
+  frontendUrl: "https://fleetpulse.yourdomain.com"

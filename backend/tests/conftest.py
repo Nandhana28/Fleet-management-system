@@ -1,4 +1,3 @@
-# backend/tests/conftest.py
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
@@ -13,21 +12,52 @@ def client():
 
 @pytest.fixture
 def auth_headers():
-    token = create_access_token("test-user")
+    token = create_access_token("test-user-id")
     return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
-def mock_dynamodb():
-    with patch("app.db.dynamodb.get_dynamodb_resource") as mock:
-        mock_resource = MagicMock()
-        mock.return_value = mock_resource
-        yield mock_resource
+def sample_vehicle():
+    return {
+        "vehicle_id": "vehicle-1",
+        "registration": "TN 33 AB 1234",
+        "driver_id": "driver-1",
+        "type": "lorry",
+        "fuel_capacity": 200,
+        "status": "moving",
+        "current_location": None,
+    }
 
 
 @pytest.fixture
-def mock_redis():
-    with patch("app.dependencies.aioredis.from_url") as mock:
-        mock_client = MagicMock()
-        mock.return_value = mock_client
-        yield mock_client
+def sample_alert():
+    return {
+        "alert_id": "alert-123",
+        "vehicle_id": "vehicle-1",
+        "alert_type": "OVERSPEEDING",
+        "severity": "HIGH",
+        "message": "Speed 110 km/h exceeds limit",
+        "status": "UNRESOLVED",
+        "resolved": False,
+        "timestamp": "2026-04-12T10:00:00",
+    }
+
+
+@pytest.fixture
+def sample_driver():
+    return {
+        "driver_id": "driver-1",
+        "name": "Rajesh Kumar",
+        "safety_score": 85,
+        "total_trips": 42,
+    }
+
+@pytest.fixture(autouse=True)
+def mock_redis_client():
+    """Auto-mock Redis for all tests — no real Redis needed."""
+    mock = MagicMock()
+    mock.get.return_value = None
+    mock.keys.return_value = []
+    mock.setex.return_value = True
+    with patch("app.services.cache_service.client", mock):
+        yield mock
