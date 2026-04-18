@@ -11,4 +11,4 @@ payload = {"sub": "fleet-owner", "exp": expire}
 token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 print(f"\n{token}\n")
-print("Paste this into Swagger → Authorize → value field")
+print("Paste this into Swagger -> Authorize -> value field")

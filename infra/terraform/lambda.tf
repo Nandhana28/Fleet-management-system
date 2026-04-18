@@ -85,3 +85,33 @@ resource "aws_lambda_function" "alert_sender" {
 
   tags = { Project = "FleetPulse" }
 }
+
+
+# S3 Archiver Lambda
+data "archive_file" "s3_archiver" {
+  type        = "zip"
+  output_path = "${path.module}/lambda_zips/s3_archiver.zip"
+
+  source {
+    content  = "def handler(event, context): pass"
+    filename = "s3_archiver.py"
+  }
+}
+
+resource "aws_lambda_function" "s3_archiver" {
+  filename         = data.archive_file.s3_archiver.output_path
+  function_name    = "fleetpulse-s3-archiver"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "s3_archiver.handler"
+  runtime          = "python3.11"
+  source_code_hash = data.archive_file.s3_archiver.output_base64sha256
+
+  environment {
+    variables = {
+      S3_BUCKET = "fleetpulse-terraform-state-farhana"
+      REGION    = "ap-south-1"
+    }
+  }
+
+  tags = { Project = "FleetPulse" }
+}

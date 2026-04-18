@@ -1,0 +1,79 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fleetpulse-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-backend-service
+                port:
+                  number: {{ .Values.backend.port }}
+          - path: /agent
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-backend-service
+                port:
+                  number: {{ .Values.backend.port }}
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-backend-service
+                port:
+                  number: {{ .Values.backend.port }}
+          - path: /vehicles
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-backend-service
+                port:
+                  number: {{ .Values.backend.port }}
+          - path: /alerts
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-backend-service
+                port:
+                  number: {{ .Values.backend.port }}
+          - path: /analytics
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-backend-service
+                port:
+                  number: {{ .Values.backend.port }}
+          - path: /settings
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-backend-service
+                port:
+                  number: {{ .Values.backend.port }}
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-backend-service
+                port:
+                  number: {{ .Values.backend.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fleetpulse-frontend-service
+                port:
+                  number: {{ .Values.frontend.port }}
+{{- end }}

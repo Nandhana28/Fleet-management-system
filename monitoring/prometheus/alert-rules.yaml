@@ -1,0 +1,38 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fleetpulse-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: fleetpulse.rules
+      rules:
+        # Alert when a service goes down
+        - alert: ServiceDown
+          expr: up == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Service {{ $labels.job }} is down"
+            description: "Service {{ $labels.job }} has been down for more than 1 minute"
+
+        # Alert when memory usage is high
+        - alert: HighMemoryUsage
+          expr: container_memory_usage_bytes{namespace="default"} > 450000000
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage on {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} memory usage is above 450MB"
+
+        # Alert when CPU usage is high
+        - alert: HighCPUUsage
+          expr: rate(container_cpu_usage_seconds_total{namespace="default"}[5m]) > 0.8
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU usage on {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} CPU usage is above 80%"

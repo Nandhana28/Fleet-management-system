@@ -1,0 +1,38 @@
+name: FleetPulse CI
+
+on:
+  push:
+    branches:
+      - 'feature/*'
+      - 'farhana'
+      - 'nandhana'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install black flake8 pytest scikit-learn pandas numpy boto3
+
+      - name: Run Black format check
+        run: black --check .
+
+      - name: Run Flake8 lint
+        run: flake8 . --max-line-length=150 --exclude=.terraform,__pycache__
+
+      - name: Run Pytest
+        run: pytest ml/anomaly_detection/test_model.py -v
+
+      - name: Build Docker image
+        run: |
+          docker build -t fleetpulse-simulator ./simulator/ || echo "No Dockerfile yet"

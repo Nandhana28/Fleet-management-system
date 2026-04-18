@@ -1,0 +1,39 @@
+# Dev overrides — uses LocalStack, lower resources
+
+backend:
+  replicas: 1
+  tag: latest
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "250m"
+
+frontend:
+  replicas: 1
+  tag: latest
+
+agent:
+  replicas: 1
+  tag: latest
+
+hpa:
+  backend:
+    minReplicas: 1
+    maxReplicas: 2
+    cpuThreshold: 80
+  frontend:
+    minReplicas: 1
+    maxReplicas: 2
+    cpuThreshold: 80
+
+ingress:
+  enabled: true
+  host: localhost
+
+env:
+  useLocalstack: "true"
+  appEnv: "development"
+  frontendUrl: "http://localhost:5173"

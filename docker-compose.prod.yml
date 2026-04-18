@@ -1,0 +1,72 @@
+version: '3.9'
+
+# Production override for AWS deployment
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+
+services:
+
+  backend:
+    environment:
+      - APP_ENV=production
+      - USE_LOCALSTACK=false
+      - AWS_ENDPOINT_URL=
+      - LOCALSTACK_ENDPOINT=
+      - DEBUG=false
+    restart: always
+    healthcheck:
+      interval: 60s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    environment:
+      - VITE_API_URL=${FRONTEND_API_URL}
+    restart: always
+
+  gps-simulator:
+    environment:
+      - USE_LOCALSTACK=false
+      - LOCALSTACK_ENDPOINT=
+      - AWS_ENDPOINT_URL=
+    restart: always
+
+  celery-worker:
+    environment:
+      - USE_LOCALSTACK=false
+      - LOCALSTACK_ENDPOINT=
+      - AWS_ENDPOINT_URL=
+    restart: always
+
+  celery-beat:
+    environment:
+      - USE_LOCALSTACK=false
+    restart: always
+
+  # Remove LocalStack in production
+  localstack:
+    deploy:
+      replicas: 0
+
+  # Production-grade Redis with persistence
+  redis:
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    restart: always
+
+  prometheus:
+    restart: always
+    volumes:
+      - prometheus_data:/prometheus
+
+  loki:
+    restart: always
+    volumes:
+      - loki_data:/loki
+
+  grafana:
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER}
+    volumes:
+      - grafana_data:/var/lib/grafana

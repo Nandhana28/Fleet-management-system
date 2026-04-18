@@ -1,20 +1,165 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+*.egg
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.npm/
+frontend/dist/
+frontend/build/
+
+# Vite
+*.local
+
 # Terraform
 **/.terraform/
 **/.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
+*.tfvars
 lambda_zips/
+terraform.tfstate.d/
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.env
-venv/
+# Docker
+*.dockerignore
 
-# VS Code
-.vscode/
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Logs
+*.log
+logs/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains / PyCharm
+.idea/
+*.iml
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MyPy
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# LocalStack data
+localstack_data/
+prometheus_data/
+loki_data/
+grafana_data/
+redis_data/
+
+# Compiled files
+*.so
+*.dylib
+*.dll
+
+# Keys / secrets
+*.pem
+*.key
+*.cert
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+.env.local.backup
+
+# Docker volumes (already covered but explicit)
+localstack_data/
+prometheus_data/
+loki_data/
+grafana_data/
+redis_data/
+
+# Generated files
+*.pyc
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE workspace settings
+.vscode/settings.json
+.idea/workspace.xml
+
+# Sensitive data
+.env
+.env.local
+.env.*.local
+.env.backup.txt
+secrets.json
+credentials.json
+*.backup
+*.backup.txt
+
+# Monitoring data
+*.rdb
+dump.rdb

@@ -60,8 +60,9 @@ def put_trip(trip: dict) -> dict:
 def get_all_alerts(active_only: bool = True) -> list:
     table = get_table(ALERTS_TABLE)
     if active_only:
+        # Match alerts where resolved is False OR resolved attribute is missing entirely
         response = table.scan(
-            FilterExpression=Attr("resolved").eq(False)
+            FilterExpression=Attr("resolved").eq(False) | Attr("resolved").not_exists()
         )
     else:
         response = table.scan()
@@ -76,10 +77,16 @@ def get_alert_by_id(alert_id: str) -> dict | None:
 
 def resolve_alert(alert_id: str) -> dict | None:
     table = get_table(ALERTS_TABLE)
+    from datetime import datetime
     response = table.update_item(
         Key={ALERT_PK: alert_id},
-        UpdateExpression="SET resolved = :r",
-        ExpressionAttributeValues={":r": True},
+        UpdateExpression="SET resolved = :r, #s = :s, resolved_at = :t",
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={
+            ":r": True,
+            ":s": "resolved",
+            ":t": datetime.utcnow().isoformat(),
+        },
         ReturnValues="ALL_NEW",
     )
     return response.get("Attributes")
