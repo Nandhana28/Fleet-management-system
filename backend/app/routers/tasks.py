@@ -87,8 +87,9 @@ def create_task(req: TaskCreate, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=f'Unknown source: {req.source}')
     if req.dest not in LANDMARK_COORDS:
         raise HTTPException(status_code=400, detail=f'Unknown destination: {req.dest}')
-    if req.source == req.dest:
-        raise HTTPException(status_code=400, detail='Source and destination cannot be the same')
+    # Allow source == dest for return-to-source trips (SOS recovery)
+    # if req.source == req.dest:
+    #     raise HTTPException(status_code=400, detail='Source and destination cannot be the same')
 
     task_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()

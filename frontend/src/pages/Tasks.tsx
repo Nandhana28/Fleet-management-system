@@ -85,8 +85,9 @@ export default function Tasks() {
     }
   }
 
-  // Only show ACTIVE tasks in the trips module
+  // Separate active and completed tasks
   const activeTasks = tasks.filter(t => t.status === 'active')
+  const completedTasks = tasks.filter(t => t.status === 'completed')
   const busyVehicleIds = new Set(activeTasks.map((t: any) => t.vehicle_id))
   const availableVehicles = vehicles.filter((v: any) =>
     !busyVehicleIds.has(v.vehicle_id) && v.status !== 'sos' && v.status !== 'moving'
@@ -243,6 +244,76 @@ export default function Tasks() {
                         onClick={() => handleDelete(task.task_id)}
                         className="w-7 h-7 rounded-full bg-gray-100 hover:bg-red-50 hover:text-red-500 text-gray-400 flex items-center justify-center text-xs transition-colors shrink-0"
                       >✕</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Trip History */}
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm mt-6">
+          <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700">
+              Trip History
+              <span className="ml-2 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
+                {completedTasks.length}
+              </span>
+            </h3>
+          </div>
+
+          {completedTasks.length === 0 ? (
+            <div className="p-12 text-center">
+              <p className="text-4xl mb-3">📋</p>
+              <p className="text-sm text-gray-500 font-medium">No completed trips yet</p>
+              <p className="text-xs text-gray-400 mt-1">Completed trips will appear here</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
+              {completedTasks.map(task => {
+                const driver  = drivers.find((d: any) => d.driver_id === task.driver_id)
+                const vehicle = vehicles.find((v: any) => v.vehicle_id === task.vehicle_id)
+
+                return (
+                  <div key={task.task_id} className="p-4">
+                    <div className="flex items-start gap-4">
+
+                      {/* Status dot */}
+                      <div className="mt-1 shrink-0">
+                        <span className="w-3 h-3 rounded-full bg-gray-400 block" />
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="text-sm font-semibold text-gray-800">{task.vehicle_id}</span>
+                          <span className="text-xs text-gray-400">{vehicle?.registration}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[task.priority] || ''}`}>
+                            {task.priority}
+                          </span>
+                        </div>
+
+                        {/* Route */}
+                        <div className="flex items-center gap-1 text-xs mb-1">
+                          <span className="font-medium text-gray-600">{task.source}</span>
+                          <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path d="M9 18l6-6-6-6" strokeWidth={2} strokeLinecap="round"/>
+                          </svg>
+                          <span className="font-medium text-gray-600">{task.dest}</span>
+                        </div>
+
+                        <p className="text-xs text-gray-400">
+                          Driver: {driver?.name || task.driver_id}
+                          {task.notes && ` · ${task.notes}`}
+                        </p>
+
+                        {task.completed_at && (
+                          <p className="text-xs text-gray-300 mt-1">
+                            Completed: {new Date(task.completed_at).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )

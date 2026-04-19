@@ -30,3 +30,4 @@ celery.conf.beat_schedule = {
 }
 
 celery.conf.timezone = "Asia/Kolkata"
+celery.conf.scheduler = "celery.beat:PersistentScheduler"

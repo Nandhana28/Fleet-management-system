@@ -218,10 +218,61 @@ export default function FleetMap({ vehicles }: Props) {
     setResolving(true)
     try {
       await resolveAlertMutation.mutateAsync({ alertId: sosAlert.alert_id, action })
-      
+
       if (action === 'resume') {
-        // Resume with same vehicle - turn green and continue
-        setSelectedVehicle(prev => prev ? { ...prev, status: 'moving' } : prev)
+        // Resume with same vehicle - create return task to source with red route
+        if (loc?.source && liveSelected.current_location) {
+          try {
+            const token = localStorage.getItem('token')
+            const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+
+            console.log('[Resume] Creating return task from', liveSelected.vehicle_id, 'back to:', loc.source)
+
+            // Create a return task: current location → source location
+            const taskRes = await fetch(`${apiBase}/tasks`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                vehicle_id: liveSelected.vehicle_id,
+                driver_id:  liveSelected.driver_id,
+                source:     loc.source,
+                dest:       loc.source,  // Return to same location (source)
+                priority:   'high',
+                notes:      `SOS Vehicle returning to source - gradual movement with route`,
+              }),
+            })
+
+            if (taskRes.ok) {
+              const taskData = await taskRes.json()
+              console.log('[Resume] Return task created:', taskData)
+
+              // Wait longer for simulator to pick up task and generate route
+              await new Promise(r => setTimeout(r, 3000))
+
+              // Fetch route multiple times to ensure we get it
+              let retries = 0
+              while (retries < 5) {
+                await fetchRoute(liveSelected.vehicle_id)
+                const route = vehicleRoutes[liveSelected.vehicle_id]
+                if (route && route.length > 0) {
+                  console.log('[Resume] Return route fetched:', route.length, 'waypoints')
+                  break
+                }
+                retries++
+                await new Promise(r => setTimeout(r, 1000))
+              }
+
+              console.log('[Resume] Vehicle now returning to', loc.source, 'with red route visible')
+            } else {
+              throw new Error('Failed to create return task')
+            }
+          } catch (e) {
+            console.error('[Return to Source] Failed:', e)
+            alert(`Failed to create return route: ${e}`)
+          }
+        }
+
+        // Keep vehicle selected so user sees return-to-source movement
         setResolveStep('idle')
         setSosState('idle')
       } else {
@@ -241,7 +292,11 @@ export default function FleetMap({ vehicles }: Props) {
     try {
       const token = localStorage.getItem('token')
       const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
-      await fetch(`${apiBase}/tasks`, {
+
+      console.log('[Replacement] Dispatching', replacement.vehicle_id, 'to', loc.source, '→', loc.dest)
+
+      // Create task for replacement vehicle
+      const taskRes = await fetch(`${apiBase}/tasks`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -253,11 +308,40 @@ export default function FleetMap({ vehicles }: Props) {
           notes:      `Replacement dispatch for SOS on ${liveSelected.vehicle_id}`,
         }),
       })
+
+      if (!taskRes.ok) {
+        throw new Error(`Task creation failed: ${taskRes.status}`)
+      }
+
+      const taskData = await taskRes.json()
+      console.log('[Replacement] Task created:', taskData)
+
+      // Wait longer for task to be picked up by simulator and start generating route
+      await new Promise(r => setTimeout(r, 3000))
+
+      // Fetch route multiple times to ensure we get it
+      let retries = 0
+      while (retries < 5) {
+        await fetchRoute(replacement.vehicle_id)
+        const route = vehicleRoutes[replacement.vehicle_id]
+        if (route && route.length > 0) {
+          console.log('[Replacement] Route fetched successfully:', route.length, 'waypoints')
+          break
+        }
+        retries++
+        await new Promise(r => setTimeout(r, 1000))
+      }
+
       setResolveStep('idle')
       setSosState('idle')
-      setSelectedVehicle(null)  // close panel — both vehicles now handled
+
+      // Switch to replacement vehicle so user sees it moving with route
+      setSelectedVehicle(replacement)
+      console.log('[Replacement] Vehicle dispatched, now tracking:', replacement.vehicle_id)
+
     } catch (e) {
       console.error('[Replacement] Failed:', e)
+      alert(`Failed to dispatch vehicle: ${e}`)
       setResolveStep('pick')
     }
   }
@@ -275,19 +359,38 @@ export default function FleetMap({ vehicles }: Props) {
           attribution='&copy; OpenStreetMap contributors'
         />
 
-        {/* Route line for selected vehicle */}
+        {/* Route line for selected vehicle - enhanced visibility */}
         {liveSelected && (vehicleRoutes[liveSelected.vehicle_id] || []).length >= 2 && (() => {
           const isSOSActive = liveSelected.status === 'sos'
+          const routeWaypoints = vehicleRoutes[liveSelected.vehicle_id]
+
           return (
-            <Polyline
-              positions={vehicleRoutes[liveSelected.vehicle_id]}
-              pathOptions={{
-                color:     isSOSActive ? '#ef4444' : '#0d9488',
-                weight:    isSOSActive ? 5 : 3,
-                opacity:   isSOSActive ? 1 : 0.8,
-                dashArray: isSOSActive ? '10 8' : undefined,
-              }}
-            />
+            <>
+              {/* Background glow effect for better visibility */}
+              {!isSOSActive && (
+                <Polyline
+                  positions={routeWaypoints}
+                  pathOptions={{
+                    color:     '#0d9488',
+                    weight:    8,
+                    opacity:   0.2,
+                    dashArray: undefined,
+                  }}
+                />
+              )}
+              {/* Main route line */}
+              <Polyline
+                positions={routeWaypoints}
+                pathOptions={{
+                  color:     isSOSActive ? '#ef4444' : '#0d9488',
+                  weight:    isSOSActive ? 5 : 4,
+                  opacity:   isSOSActive ? 1 : 0.9,
+                  dashArray: isSOSActive ? '10 8' : undefined,
+                  lineCap:   'round',
+                  lineJoin:  'round',
+                }}
+              />
+            </>
           )
         })()}
 
@@ -298,24 +401,42 @@ export default function FleetMap({ vehicles }: Props) {
             const wps = vehicleRoutes[v.vehicle_id] || []
             if (wps.length < 2) return null
             return (
-              <Polyline
-                key={`sos-${v.vehicle_id}`}
-                positions={wps}
-                pathOptions={{ color: '#ef4444', weight: 5, opacity: 1, dashArray: '10 8' }}
-              />
+              <div key={`sos-${v.vehicle_id}`}>
+                {/* Glow background */}
+                <Polyline
+                  positions={wps}
+                  pathOptions={{ color: '#ef4444', weight: 8, opacity: 0.2 }}
+                />
+                {/* Main SOS route */}
+                <Polyline
+                  positions={wps}
+                  pathOptions={{
+                    color: '#ef4444',
+                    weight: 5,
+                    opacity: 1,
+                    dashArray: '10 8',
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+              </div>
             )
           })
         }
 
-        {/* Markers with labels */}
-        {vehicles.filter(v => v.current_location).map(vehicle => {
+        {/* Markers with labels - smooth animation along route */}
+        {vehicles.filter(v => v.current_location).map((vehicle, idx) => {
           const vloc = vehicle.current_location!
+          const isMoving = (vloc.speed ?? 0) > 5
+
           return (
             <Marker
-              key={vehicle.vehicle_id}
+              key={`${vehicle.vehicle_id}-${isMoving ? 'moving' : 'idle'}`}
               position={[vloc.latitude, vloc.longitude]}
               icon={getMarkerIcon(vehicle)}
-              eventHandlers={{ click: () => handleMarkerClick(vehicle) }}
+              eventHandlers={{
+                click: () => handleMarkerClick(vehicle),
+              }}
             >
               <Popup>
                 <div className="text-sm font-semibold">{vehicle.vehicle_id}</div>
@@ -448,38 +569,84 @@ export default function FleetMap({ vehicles }: Props) {
                 )}
 
                 {/* Step 3 — Pick replacement vehicle */}
-                {resolveStep === 'pick' && (
-                  <div className="flex flex-col gap-2">
-                    <div className="bg-teal-50 border border-teal-200 rounded-lg px-3 py-2 text-xs text-teal-700 font-medium text-center">
-                      Original route: {loc?.source} → {loc?.dest}
+                {resolveStep === 'pick' && (() => {
+                  const idleVehicles = vehicles.filter(v =>
+                    v.vehicle_id !== liveSelected?.vehicle_id &&
+                    v.status !== 'sos' &&
+                    v.status === 'idle'
+                  )
+                  const otherVehicles = vehicles.filter(v =>
+                    v.vehicle_id !== liveSelected?.vehicle_id &&
+                    v.status !== 'sos' &&
+                    v.status !== 'idle'
+                  )
+
+                  return (
+                    <div className="flex flex-col gap-2">
+                      <div className="bg-teal-50 border border-teal-200 rounded-lg px-3 py-2 text-xs text-teal-700 font-medium text-center">
+                        Original route: {loc?.source} → {loc?.dest}
+                      </div>
+
+                      {idleVehicles.length === 0 ? (
+                        <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-xs text-orange-700 font-medium text-center">
+                          ⚠️ No idle vehicles available. All vehicles are in use.
+                        </div>
+                      ) : null}
+
+                      {idleVehicles.length > 0 && (
+                        <>
+                          <p className="text-xs font-semibold text-gray-600">Available vehicles (Idle):</p>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {idleVehicles.map(v => (
+                              <button
+                                key={v.vehicle_id}
+                                onClick={() => handleSendReplacement(v)}
+                                className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 hover:border-green-400 hover:bg-green-50 transition-colors text-left"
+                              >
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-800">{v.vehicle_id}</p>
+                                  <p className="text-[10px] text-gray-400">{v.registration} · {v.driver_id}</p>
+                                </div>
+                                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                                  Idle
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {otherVehicles.length > 0 && idleVehicles.length === 0 && (
+                        <>
+                          <p className="text-xs font-semibold text-gray-600">Other vehicles (in use):</p>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {otherVehicles.map(v => (
+                              <div
+                                key={v.vehicle_id}
+                                className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 bg-gray-50"
+                              >
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-800">{v.vehicle_id}</p>
+                                  <p className="text-[10px] text-gray-400">{v.registration} · {v.driver_id}</p>
+                                </div>
+                                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                  {v.status}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      <button
+                        onClick={() => setResolveStep('ask')}
+                        className="text-xs text-gray-400 hover:text-gray-600 text-center py-1"
+                      >
+                        ← Back
+                      </button>
                     </div>
-                    <p className="text-xs font-semibold text-gray-600">Select alternate vehicle:</p>
-                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {vehicles
-                        .filter(v => v.vehicle_id !== liveSelected?.vehicle_id && v.status !== 'sos')
-                        .map(v => (
-                          <button
-                            key={v.vehicle_id}
-                            onClick={() => handleSendReplacement(v)}
-                            className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 hover:border-teal-400 hover:bg-teal-50 transition-colors text-left"
-                          >
-                            <div>
-                              <p className="text-xs font-semibold text-gray-800">{v.vehicle_id}</p>
-                              <p className="text-[10px] text-gray-400">{v.registration} · {v.driver_id}</p>
-                            </div>
-                            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                              v.status === 'moving'
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-orange-100 text-orange-700'
-                            }`}>
-                              {v.status}
-                            </span>
-                          </button>
-                        ))
-                      }
-                    </div>
-                  </div>
-                )}
+                  )
+                })()}
 
                 {/* Step 4 — Dispatching */}
                 {resolveStep === 'sending' && (
@@ -614,26 +781,128 @@ export default function FleetMap({ vehicles }: Props) {
               </div>
             </div>
 
+            {/* Assign New Task */}
+            {liveSelected.status !== 'sos' && (
+              <div className="p-4 border-b border-gray-100">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Assign Trip</p>
+                <div className="space-y-2">
+                  <select
+                    id={`source-${liveSelected.vehicle_id}`}
+                    className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white"
+                    defaultValue=""
+                  >
+                    <option value="">Select source location</option>
+                    {['Gandhipuram Bus Stand', 'Coimbatore Airport', 'RS Puram', 'Peelamedu', 'Ukkadam', 'Singanallur', 'Tidel Park', 'Podanur Junction', 'Saibaba Colony', 'Ganapathy', 'Race Course', 'Vadavalli', 'Hopes College', 'Kuniyamuthur', 'Kovaipudur', 'Thondamuthur'].map(loc => (
+                      <option key={loc} value={loc}>{loc}</option>
+                    ))}
+                  </select>
+                  <select
+                    id={`dest-${liveSelected.vehicle_id}`}
+                    className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white"
+                    defaultValue=""
+                  >
+                    <option value="">Select destination</option>
+                    {['Gandhipuram Bus Stand', 'Coimbatore Airport', 'RS Puram', 'Peelamedu', 'Ukkadam', 'Singanallur', 'Tidel Park', 'Podanur Junction', 'Saibaba Colony', 'Ganapathy', 'Race Course', 'Vadavalli', 'Hopes College', 'Kuniyamuthur', 'Kovaipudur', 'Thondamuthur'].map(loc => (
+                      <option key={loc} value={loc}>{loc}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={async () => {
+                      const source = (document.getElementById(`source-${liveSelected.vehicle_id}`) as HTMLSelectElement)?.value
+                      const dest = (document.getElementById(`dest-${liveSelected.vehicle_id}`) as HTMLSelectElement)?.value
+                      if (!source || !dest || source === dest) {
+                        alert('Please select different source and destination')
+                        return
+                      }
+                      try {
+                        const token = localStorage.getItem('token')
+                        const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+
+                        console.log('[Assign] Creating task:', liveSelected.vehicle_id, source, '→', dest)
+
+                        const res = await fetch(`${apiBase}/tasks`, {
+                          method: 'POST',
+                          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            vehicle_id: liveSelected.vehicle_id,
+                            driver_id:  liveSelected.driver_id,
+                            source,
+                            dest,
+                            priority:   'normal',
+                            notes:      'Trip assigned from dashboard',
+                          }),
+                        })
+
+                        if (res.ok) {
+                          console.log('[Assign] Task created, waiting for route...')
+
+                          // Wait for simulator to pick up task and generate route
+                          await new Promise(r => setTimeout(r, 3000))
+
+                          // Fetch route with retries to ensure it's visible
+                          let retries = 0
+                          while (retries < 5) {
+                            await fetchRoute(liveSelected.vehicle_id)
+                            const route = vehicleRoutes[liveSelected.vehicle_id]
+                            if (route && route.length > 0) {
+                              console.log('[Assign] Route visible with', route.length, 'waypoints')
+                              break
+                            }
+                            retries++
+                            await new Promise(r => setTimeout(r, 1000))
+                          }
+
+                          alert(`✅ Trip assigned: ${source} → ${dest}\n\nVehicle will move gradually with visible route`)
+                          ;(document.getElementById(`source-${liveSelected.vehicle_id}`) as HTMLSelectElement).value = ''
+                          ;(document.getElementById(`dest-${liveSelected.vehicle_id}`) as HTMLSelectElement).value = ''
+                        } else {
+                          alert('Failed to assign trip')
+                        }
+                      } catch (e) {
+                        console.error('[Task] Failed:', e)
+                        alert('Error assigning trip')
+                      }
+                    }}
+                    className="w-full py-1.5 rounded-lg text-xs font-semibold bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+                  >
+                    Assign Trip
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Trip History & Active Trips */}
             <div className="p-4">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                Trip History {trips.length > 0 && `(${trips.length})`}
+                Trips {trips.length > 0 && `(${trips.length})`}
               </p>
               {loadingTrips ? (
                 <p className="text-xs text-gray-400">Loading...</p>
               ) : trips.length === 0 ? (
-                <p className="text-xs text-gray-400">No trips recorded yet</p>
+                <p className="text-xs text-gray-400">No active or past trips</p>
               ) : (
                 <div className="space-y-2">
-                  {trips.slice(0, 5).map((trip, i) => (
-                    <div key={(trip as any).trip_id || i} className="border border-gray-100 rounded-lg p-3">
-                      <div className="flex justify-between">
-                        <p className="text-xs font-medium text-gray-600">Trip {i + 1}</p>
-                        <p className="text-xs text-gray-400">
-                          {(trip as any).timestamp ? new Date((trip as any).timestamp).toLocaleDateString() : '—'}
-                        </p>
+                  {trips.slice(0, 5).map((trip, i) => {
+                    const t = trip as any
+                    const isActive = t.status === 'active'
+                    return (
+                      <div key={t.trip_id || i} className={`border rounded-lg p-3 ${isActive ? 'border-teal-200 bg-teal-50' : 'border-gray-100'}`}>
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className="text-xs font-medium text-gray-700">{t.source} → {t.dest}</p>
+                            <p className="text-[10px] text-gray-500 mt-0.5">
+                              {isActive ? '🚗 Active' : '✓ Completed'}
+                            </p>
+                          </div>
+                          {isActive && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-200 text-teal-700">
+                              IN PROGRESS
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>

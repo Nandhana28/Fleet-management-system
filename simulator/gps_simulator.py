@@ -1,4 +1,4 @@
-import os, time, json, random, threading, math, requests, boto3, redis
+import os, time, json, random, threading, math, requests, boto3, redis, uuid
 from datetime import datetime
 
 _redis_url = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6380/0')
@@ -61,38 +61,16 @@ def get_speed_limit(lat, lon):
 
 
 def get_road_route(start, end):
-    if not ORS_API_KEY:
-        return get_simulated_route(start, end)
-    try:
-        resp = requests.post(
-            'https://api.openrouteservice.org/v2/directions/driving-car/geojson',
-            headers={'Authorization': ORS_API_KEY, 'Content-Type': 'application/json'},
-            json={'coordinates': [[start[1], start[0]], [end[1], end[0]]]},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            coords = resp.json()['features'][0]['geometry']['coordinates']
-            wps = [(c[1], c[0]) for c in coords]
-            print(f'[ORS] {len(wps)} waypoints')
-            return wps
-    except Exception as e:
-        print(f'[ORS] {e}')
     return get_simulated_route(start, end)
 
 
 def get_simulated_route(start, end):
     wps = [start]
-    steps = random.randint(14, 22)
+    steps = 6
     for i in range(1, steps):
         f = i / steps
         lat = start[0] + (end[0] - start[0]) * f
         lon = start[1] + (end[1] - start[1]) * f
-        if i % 3 == 0:
-            lat += random.choice([-1, 1]) * random.uniform(0.001, 0.003)
-            lon += random.choice([-1, 1]) * random.uniform(0.001, 0.003)
-        else:
-            lat += random.uniform(-0.0005, 0.0005)
-            lon += random.uniform(-0.0005, 0.0005)
         wps.append((round(lat, 6), round(lon, 6)))
     wps.append(end)
     return wps
@@ -104,11 +82,11 @@ def inject_chaos(speed, fuel, speed_limit):
     if anomaly == 'overspeed':
         speed = round(random.uniform(speed_limit + 10, speed_limit + 40), 2)
         alert_type = 'OVERSPEEDING'
-        print(f'🚨 CHAOS overspeed {speed} (limit {speed_limit})')
+        print(f' CHAOS overspeed {speed} (limit {speed_limit})')
     elif anomaly == 'fuel_theft':
         fuel = max(5, round(fuel - random.uniform(10, 20), 2))
         alert_type = 'FUEL_THEFT'
-        print(f'🚨 CHAOS fuel theft → {fuel}%')
+        print(f' CHAOS fuel theft  {fuel}%')
     return speed, fuel, alert_type
 
 
@@ -154,7 +132,7 @@ def notify_in_app(vehicle_id, message, event_type='info'):
 
 
 def send_sos_whatsapp(vehicle_id, lat, lon):
-    """SOS only — send WhatsApp."""
+    """SOS only  send WhatsApp."""
     try:
         db = boto3.resource('dynamodb', endpoint_url=LOCALSTACK,
                             region_name='ap-south-1',
@@ -172,7 +150,7 @@ def send_sos_whatsapp(vehicle_id, lat, lon):
                     from twilio.rest import Client
                     Client(sid, token).messages.create(
                         body=(
-                            f'🚨 *EMERGENCY SOS — FleetPulse*\n'
+                            f' *EMERGENCY SOS  FleetPulse*\n'
                             f'Vehicle: {vehicle_id}\n'
                             f'Location: {lat}, {lon}\n'
                             f'https://maps.google.com/?q={lat},{lon}\n'
@@ -188,7 +166,7 @@ def send_sos_whatsapp(vehicle_id, lat, lon):
 
 
 def get_active_task(vehicle_id):
-    # Fast path — Redis
+    # Fast path  Redis
     raw = redis_client.get(f'task:{vehicle_id}:active')
     if raw:
         try:
@@ -196,7 +174,7 @@ def get_active_task(vehicle_id):
         except Exception:
             pass
 
-    # Fallback — scan DynamoDB directly (handles backend Redis write failures)
+    # Fallback  scan DynamoDB directly (handles backend Redis write failures)
     try:
         db = boto3.resource('dynamodb', endpoint_url=LOCALSTACK,
                             region_name='ap-south-1',
@@ -267,10 +245,10 @@ def write_location(vehicle_id, lat, lon, speed, fuel, status,
                 PartitionKey=vehicle_id
             )
         except Exception as ke:
-            pass  # Kinesis optional — don't block on it
+            pass  # Kinesis optional  don't block on it
             
     except Exception as e:
-        print(f'❌ Redis {vehicle_id}: {e}')
+        print(f' Redis {vehicle_id}: {e}')
 
 
 def mark_task_complete(vehicle_id, task_id):
@@ -289,7 +267,7 @@ def mark_task_complete(vehicle_id, task_id):
         )
         redis_client.delete(f'task:{vehicle_id}:active')
 
-        # Clear location to idle state — no route, no progress
+        # Clear location to idle state  no route, no progress
         existing = redis_client.get(f'vehicle:{vehicle_id}:location')
         if existing:
             data = json.loads(existing)
@@ -342,12 +320,12 @@ def simulate_vehicle(vehicle_id: str):
     fuel     = round(random.uniform(75, 100), 2)
     odometer = round(random.uniform(10000, 80000), 1)
     fatigue  = 0   # minutes driven this shift
-    last_chaos_alert: dict[str, float] = {}  # alert_type → timestamp, to throttle
+    last_chaos_alert: dict[str, float] = {}  # alert_type  timestamp, to throttle
 
-    print(f'🚗 {vehicle_id} thread started')
+    print(f' {vehicle_id} thread started')
 
     while True:
-        # SOS lock — freeze completely
+        # SOS lock  freeze completely
         if redis_client.get(f'vehicle:{vehicle_id}:sos_lock'):
             time.sleep(2)
             continue
@@ -355,7 +333,7 @@ def simulate_vehicle(vehicle_id: str):
         task = get_active_task(vehicle_id)
 
         if not task:
-            # No task — stay idle
+            # No task  stay idle
             existing = redis_client.get(f'vehicle:{vehicle_id}:location')
             if existing:
                 data = json.loads(existing)
@@ -373,7 +351,7 @@ def simulate_vehicle(vehicle_id: str):
         task_id = task.get('task_id', '')
         driver_id = task.get('driver_id', f'driver-{vehicle_id.split("-")[1]}')
 
-        print(f'🗺️  {vehicle_id}: {source} → {dest}')
+        print(f'[Route] {vehicle_id}: {source} to {dest}')
         waypoints  = get_road_route(start, end)
         reverse_wps = list(reversed(waypoints))
 
@@ -382,7 +360,7 @@ def simulate_vehicle(vehicle_id: str):
             'waypoints': waypoints,
         }))
 
-        # ── Forward trip ──────────────────────────────────────────────────────
+        #  Forward trip 
         wp_index = 0
         signal_cooldown = 0
 
@@ -397,9 +375,6 @@ def simulate_vehicle(vehicle_id: str):
                 break
 
             lat, lon = waypoints[wp_index]
-            lat += random.uniform(-0.00005, 0.00005)
-            lon += random.uniform(-0.00005, 0.00005)
-            lat, lon = round(lat, 6), round(lon, 6)
 
             traffic_mult = get_traffic_multiplier(lat, lon)
             speed_limit, speed_zone = get_speed_limit(lat, lon)
@@ -416,12 +391,12 @@ def simulate_vehicle(vehicle_id: str):
                 dist = math.sqrt((lat - prev[0])**2 + (lon - prev[1])**2) * 111
                 odometer += dist
 
-            # Driver fatigue — every 120 min, speed drops
+            # Driver fatigue  every 120 min, speed drops
             fatigue += (2 / 60)
             if fatigue > 120:
                 speed = round(speed * 0.75, 2)
                 if random.random() < 0.01:
-                    notify_in_app(vehicle_id, f'{vehicle_id} driver fatigue detected — driving slow', 'warning')
+                    notify_in_app(vehicle_id, f'{vehicle_id} driver fatigue detected  driving slow', 'warning')
 
             # Chaos
             alert_type = None
@@ -430,10 +405,10 @@ def simulate_vehicle(vehicle_id: str):
                 if alert_type:
                     now_ts = time.time()
                     last = last_chaos_alert.get(alert_type, 0)
-                    if now_ts - last > 120:  # throttle — one alert per 2 min per type
+                    if now_ts - last > 120:  # throttle  one alert per 2 min per type
                         create_alert(vehicle_id, driver_id, alert_type, speed, fuel, lat, lon)
                         notify_in_app(vehicle_id,
-                            f'{alert_type} on {vehicle_id} — speed {speed} km/h' if alert_type == 'OVERSPEEDING'
+                            f'{alert_type} on {vehicle_id}  speed {speed} km/h' if alert_type == 'OVERSPEEDING'
                             else f'Fuel theft suspected on {vehicle_id}',
                             'alert')
                         last_chaos_alert[alert_type] = now_ts
@@ -445,7 +420,7 @@ def simulate_vehicle(vehicle_id: str):
                 signal_wait = random.randint(3, 8)
                 speed = 0
                 signal_cooldown = signal_wait
-                print(f'🚦 {vehicle_id} red light ({signal_wait}s)')
+                print(f' {vehicle_id} red light ({signal_wait}s)')
 
             status   = 'moving' if speed > 5 else 'idle'
             # Outbound leg = 0-50% of overall journey
@@ -453,7 +428,7 @@ def simulate_vehicle(vehicle_id: str):
 
             # Low fuel warning
             if fuel < 15 and random.random() < 0.05:
-                notify_in_app(vehicle_id, f'{vehicle_id} low fuel — {fuel}%', 'warning')
+                notify_in_app(vehicle_id, f'{vehicle_id} low fuel  {fuel}%', 'warning')
 
             # Speed zone warning
             if speed_zone and speed > speed_limit:
@@ -462,13 +437,13 @@ def simulate_vehicle(vehicle_id: str):
             write_location(vehicle_id, lat, lon, speed, fuel,
                            status, source, dest, progress, odometer, round(fatigue))
 
-            print(f'📍 {vehicle_id} | {progress:.0f}% | {speed}km/h | fuel={fuel:.1f}% | odo={odometer:.0f}km')
+            print(f' {vehicle_id} | {progress:.0f}% | {speed}km/h | fuel={fuel:.1f}% | odo={odometer:.0f}km')
 
-            advance = max(1, int(speed / 15))
+            advance = 1
             wp_index += advance
-            time.sleep(max(0.5, 2.5 - speed / 50))
+            time.sleep(0.2)
 
-        # Arrived at destination — 50% of round trip done
+        # Arrived at destination  50% of round trip done
         dest_pos = waypoints[-1]
         write_location(vehicle_id, dest_pos[0], dest_pos[1], 0, fuel,
                        'idle', dest, dest, 50, odometer, round(fatigue))
@@ -478,17 +453,17 @@ def simulate_vehicle(vehicle_id: str):
         # Refuel at destination if low
         if fuel < 25:
             fuel = round(random.uniform(70, 100), 2)
-            notify_in_app(vehicle_id, f'{vehicle_id} refuelled at {dest} — {fuel}%', 'info')
-            print(f'⛽ {vehicle_id} refuelled → {fuel}%')
+            notify_in_app(vehicle_id, f'{vehicle_id} refuelled at {dest}  {fuel}%', 'info')
+            print(f' {vehicle_id} refuelled  {fuel}%')
 
         # Fatigue reset at destination (driver rest)
         fatigue = 0
 
         rest = random.randint(20, 45)
-        print(f'⏸️  {vehicle_id} resting {rest}s')
+        print(f'  {vehicle_id} resting {rest}s')
         time.sleep(rest)
 
-        # ── Return trip ───────────────────────────────────────────────────────
+        #  Return trip 
         redis_client.set(f'vehicle:{vehicle_id}:route', json.dumps({
             'source': dest, 'dest': source,
             'waypoints': reverse_wps,
@@ -507,9 +482,6 @@ def simulate_vehicle(vehicle_id: str):
                 break
 
             lat, lon = reverse_wps[wp_index]
-            lat += random.uniform(-0.00005, 0.00005)
-            lon += random.uniform(-0.00005, 0.00005)
-            lat, lon = round(lat, 6), round(lon, 6)
 
             traffic_mult = get_traffic_multiplier(lat, lon)
             speed_limit, _ = get_speed_limit(lat, lon)
@@ -552,20 +524,19 @@ def simulate_vehicle(vehicle_id: str):
             write_location(vehicle_id, lat, lon, speed, fuel,
                            status, dest, source, progress, odometer, round(fatigue))
 
-            print(f'🔄 {vehicle_id} return | {progress:.0f}% | {speed}km/h | fuel={fuel:.1f}%')
+            print(f' {vehicle_id} return | {progress:.0f}% | {speed}km/h | fuel={fuel:.1f}%')
 
-            advance = max(1, int(speed / 15))
+            advance = 1
             wp_index += advance
-            time.sleep(max(0.5, 2.5 - speed / 50))
+            time.sleep(0.2)
 
-        # Back at source — full round trip complete at 100%
+        # Back at source - round trip complete
         origin_pos = reverse_wps[-1]
         write_location(vehicle_id, origin_pos[0], origin_pos[1], 0, fuel,
                        'idle', source, source, 100, odometer, 0)
 
-        notify_in_app(vehicle_id,
-            f'{vehicle_id} trip complete — returned to {source}', 'success')
-        print(f'[Done] {vehicle_id} task complete — back at {source}')
+        notify_in_app(vehicle_id, f'{vehicle_id} trip complete', 'success')
+        print(f'[Done] {vehicle_id} task complete')
 
         mark_task_complete(vehicle_id, task_id)
         fatigue = 0
@@ -579,10 +550,46 @@ def clear_stale_sos_locks():
 
 
 def clear_stale_task_keys():
-    """Clear any Redis task keys from previous runs — vehicles start idle until trips are assigned."""
+    """Clear any Redis task keys from previous runs  vehicles start idle until trips are assigned."""
     for vid in ALL_VEHICLES:
         redis_client.delete(f'task:{vid}:active')
-    print('[Startup] Cleared stale task keys — all vehicles start idle')
+    print('[Startup] Cleared stale task keys  all vehicles start idle')
+
+
+def init_vehicle_positions():
+    """Initialize all vehicles with random starting positions."""
+    landmarks_list = [
+        ('Gandhipuram Bus Stand', (11.0168, 76.9558)),
+        ('Coimbatore Airport', (11.0275, 77.0433)),
+        ('RS Puram', (10.9987, 76.9508)),
+        ('Peelamedu', (11.0168, 77.0081)),
+        ('Ukkadam', (10.9847, 76.9762)),
+        ('Singanallur', (11.0012, 77.0289)),
+        ('Tidel Park', (11.0130, 77.0180)),
+        ('Podanur Junction', (10.9697, 76.9785)),
+        ('Saibaba Colony', (11.0080, 76.9720)),
+        ('Ganapathy', (11.0230, 76.9640)),
+    ]
+
+    for idx, vid in enumerate(ALL_VEHICLES):
+        landmark, coords = landmarks_list[idx % len(landmarks_list)]
+        lat, lon = coords
+        location_data = {
+            'latitude': lat,
+            'longitude': lon,
+            'speed': 0,
+            'fuel_level': round(random.uniform(60, 100), 1),
+            'status': 'idle',
+            'timestamp': datetime.utcnow().isoformat(),
+            'source': '',
+            'dest': '',
+            'progress': 0,
+            'odometer': round(random.uniform(10000, 80000), 1),
+            'driver_fatigue': 0,
+        }
+        redis_client.setex(f'vehicle:{vid}:location', 86400, json.dumps(location_data))
+
+    print(f'[Startup] Initialized {len(ALL_VEHICLES)} vehicle positions')
 
 
 def main():
@@ -592,6 +599,7 @@ def main():
 
     clear_stale_sos_locks()
     clear_stale_task_keys()
+    init_vehicle_positions()
     push_seeded_tasks_to_redis()
 
     for vid in ALL_VEHICLES:
@@ -599,13 +607,13 @@ def main():
         t.start()
         time.sleep(0.2)
 
-    print(f'✅ {len(ALL_VEHICLES)} vehicle threads started\n')
+    print(f' {len(ALL_VEHICLES)} vehicle threads started\n')
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print('\n🛑 Simulator stopped')
+        print('\n Simulator stopped')
 
 
 if __name__ == '__main__':

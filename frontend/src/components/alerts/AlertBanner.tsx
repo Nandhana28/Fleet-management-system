@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAlerts, useResolveAlert, useResolveAllAlerts } from '../../hooks/useAlerts'
 
 const SEV_COLOR: Record<string, string> = {
@@ -14,8 +14,36 @@ export default function AlertBanner() {
   const { mutate: resolveAll, isPending: clearingAll } = useResolveAllAlerts()
   const [expanded, setExpanded] = useState(false)
   const [resolvingId, setResolvingId] = useState<string | null>(null)
+  const [hidden, setHidden] = useState(false)
+
+  useEffect(() => {
+    setHidden(localStorage.getItem('alertBannerHidden') === 'true')
+  }, [])
+
+  const handleHide = () => {
+    setHidden(true)
+    localStorage.setItem('alertBannerHidden', 'true')
+  }
+
+  const handleShow = () => {
+    setHidden(false)
+    localStorage.setItem('alertBannerHidden', 'false')
+  }
 
   if (!alerts || alerts.length === 0) return null
+
+  if (hidden) {
+    return (
+      <div className="fixed top-0 right-4 z-[1050] pt-4">
+        <button
+          onClick={handleShow}
+          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-semibold text-sm transition-colors shadow-lg"
+        >
+          Show Alerts ({alerts.length})
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="relative z-[1050] bg-red-50 border-b border-red-200">
@@ -45,9 +73,13 @@ export default function AlertBanner() {
               {clearingAll ? 'Clearing…' : 'Clear all'}
             </button>
           )}
-          <span className="text-red-400 text-xs pointer-events-none">
-            {expanded ? '▲ Hide' : '▼ Show'}
-          </span>
+          <button
+            onClick={handleHide}
+            className="text-red-400 hover:text-red-600 text-xs font-semibold px-2 py-0.5 rounded transition-colors"
+            title="Hide alert banner"
+          >
+            Hide
+          </button>
         </div>
       </div>
 

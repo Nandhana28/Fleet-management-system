@@ -182,7 +182,7 @@ services:
         - BUILDKIT_INLINE_CACHE=1
     container_name: fleetpulse-celery-beat
     image: fleetpulse-backend:latest
-    command: celery -A tasks.celery_app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    command: celery -A tasks.celery_app beat --loglevel=info
     env_file:
       - .env
     environment:

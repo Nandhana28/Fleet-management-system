@@ -7,7 +7,7 @@ def get_all_vehicles_with_location() -> list:
     """
     Gets all vehicles from DynamoDB and merges
     current location from Redis for each one.
-    Redis status only overrides DynamoDB for SOS.
+    Redis status always takes precedence (real-time).
     """
     vehicles = queries.get_all_vehicles()
     locations = get_all_vehicle_locations()
@@ -16,9 +16,7 @@ def get_all_vehicles_with_location() -> list:
         vid = vehicle.get("vehicle_id")
         if vid in locations:
             vehicle["current_location"] = locations[vid]
-            # Only SOS overrides DynamoDB status
-            if locations[vid].get("status") == "sos":
-                vehicle["status"] = "sos"
+            vehicle["status"] = locations[vid].get("status", "idle")
         else:
             vehicle["current_location"] = None
 
@@ -29,7 +27,7 @@ def get_vehicle_with_location(vehicle_id: str) -> dict | None:
     """
     Gets single vehicle from DynamoDB and merges
     current location from Redis.
-    Redis status only overrides DynamoDB for SOS.
+    Redis status always takes precedence (real-time).
     """
     vehicle = queries.get_vehicle_by_id(vehicle_id)
     if not vehicle:
@@ -37,6 +35,6 @@ def get_vehicle_with_location(vehicle_id: str) -> dict | None:
 
     location = get_vehicle_location(vehicle_id)
     vehicle["current_location"] = location
-    if location and location.get("status") == "sos":
-        vehicle["status"] = "sos"
+    if location:
+        vehicle["status"] = location.get("status", "idle")
     return vehicle

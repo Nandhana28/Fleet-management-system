@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 
 from app.config import settings as app_settings
-from app.routers import health, vehicles, alerts, analytics, agent, auth, maintenance
+from app.routers import health, vehicles, alerts, analytics, agent, auth, maintenance, profile, fuel
 from app.routers import settings as settings_router
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.routers import tasks as tasks_router
@@ -52,6 +52,8 @@ app.include_router(maintenance.router)
 app.include_router(tasks_router.router, prefix='/tasks', tags=['tasks'])
 app.include_router(notifications_router.router, prefix='/notifications', tags=['notifications'])
 app.include_router(contact_router.router, prefix='/contact', tags=['contact'])
+app.include_router(profile.router, tags=["profile"])
+app.include_router(fuel.router, tags=["fuel"])
 
 socket_app = app
 
@@ -88,10 +90,11 @@ def start_simulator():
 
 
 def auto_seed_if_empty():
-    """Seed vehicles and drivers if DynamoDB tables are empty (LocalStack data loss guard)."""
+    """Seed vehicles, drivers, and tasks if DynamoDB tables are empty (LocalStack data loss guard)."""
     try:
-        import json, boto3, redis as redis_lib
+        import json, boto3, redis as redis_lib, uuid
         from datetime import datetime
+        from decimal import Decimal
 
         db = boto3.resource(
             'dynamodb',
@@ -133,6 +136,8 @@ def auto_seed_if_empty():
         ]
 
         dt = db.Table('Drivers')
+        tt = db.Table('Tasks')
+
         for vid, reg, vtype, driver, cap, lat, lon, src, dst in VEHICLES:
             vt.put_item(Item={
                 'vehicle_id': vid, 'registration': reg, 'type': vtype,
@@ -156,7 +161,25 @@ def auto_seed_if_empty():
                 'safety_score': 85, 'created_at': now,
             })
 
-        print('[Seed] Auto-seed complete — 10 vehicles and 10 drivers added')
+        # Seed tasks for all 10 vehicles — CRITICAL for simulator to work
+        task_count = 0
+        for i, (vid, reg, vtype, driver, cap, lat, lon, src, dst) in enumerate(VEHICLES, 1):
+            task_id = str(uuid.uuid4())
+            tt.put_item(Item={
+                'task_id': task_id,
+                'vehicle_id': vid,
+                'driver_id': driver,
+                'source': src,
+                'dest': dst,
+                'start_coords': [Decimal(str(lat)), Decimal(str(lon))],
+                'end_coords': [Decimal(str(10.9500 + i*0.001)), Decimal(str(76.9650 + i*0.001))],
+                'status': 'active',
+                'priority': 'medium',
+                'created_at': now,
+            })
+            task_count += 1
+
+        print(f'[Seed] Auto-seed complete — 10 vehicles, 10 drivers, {task_count} tasks added')
     except Exception as e:
         print(f'[Seed] Auto-seed failed (non-fatal): {e}')
 

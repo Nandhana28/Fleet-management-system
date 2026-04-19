@@ -29,7 +29,6 @@ python-multipart==0.0.22
 
 # --- HTTP & Networking ----------------------------------------------------
 slowapi==0.1.9
-httpx==0.27.0
 httpx==0.28.1
 httpcore==1.0.9
 requests==2.33.0

@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import Analytics from './pages/Analytics'
 import Agent from './pages/Agent'
 import Settings from './pages/Settings'
+import Profile from './pages/Profile'
 import Header from './components/layout/Header'
 import AlertBanner from './components/alerts/AlertBanner'
 import ToastContainer from './components/ui/ToastContainer'
@@ -46,6 +47,7 @@ function AppShell() {
           <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/agent" element={<ProtectedRoute><Agent /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/maintenance" element={<ProtectedRoute><Maintenance /></ProtectedRoute>} />
         </Routes>
       </main>
