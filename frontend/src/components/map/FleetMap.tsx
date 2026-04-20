@@ -1,8 +1,70 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker } from 'react-leaflet'
 import L from 'leaflet'
-import { Vehicle, Trip } from '../../types/vehicle'
+import { Vehicle } from '../../types/vehicle'
 import { useAlerts, useResolveAlert } from '../../hooks/useAlerts'
+
+// ─── Animated Marker ─────────────────────────────────────────────────────────
+// Interpolates smoothly from the previous position to the new one using RAF
+// so marker movement is fluid rather than jump-on-poll.
+const ANIM_DURATION_MS = 450 // slightly less than the 500ms poll interval
+
+const AnimatedMarker = React.memo(function AnimatedMarker({
+  position,
+  icon,
+  onClick,
+  children,
+}: {
+  position: [number, number]
+  icon: L.Icon | L.DivIcon
+  onClick?: () => void
+  children?: React.ReactNode
+}) {
+  const markerRef = useRef<L.Marker | null>(null)
+  // Stable ref so react-leaflet never re-calls setLatLng when position prop changes
+  const stablePos = useRef<[number, number]>(position)
+  const animRef = useRef({ from: position, to: position, startTime: 0, rafId: 0 })
+
+  useEffect(() => {
+    const marker = markerRef.current
+    if (!marker) return
+
+    cancelAnimationFrame(animRef.current.rafId)
+
+    const cur = marker.getLatLng()
+    // Nothing to do if position hasn't changed
+    if (cur.lat === position[0] && cur.lng === position[1]) return
+
+    animRef.current.from = [cur.lat, cur.lng]
+    animRef.current.to   = position
+    animRef.current.startTime = performance.now()
+
+    const step = (now: number) => {
+      const t    = Math.min((now - animRef.current.startTime) / ANIM_DURATION_MS, 1)
+      const ease = 1 - Math.pow(1 - t, 3) // ease-out cubic — fast start, smooth finish
+      marker.setLatLng([
+        animRef.current.from[0] + (animRef.current.to[0] - animRef.current.from[0]) * ease,
+        animRef.current.from[1] + (animRef.current.to[1] - animRef.current.from[1]) * ease,
+      ])
+      if (t < 1) animRef.current.rafId = requestAnimationFrame(step)
+    }
+    animRef.current.rafId = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(animRef.current.rafId)
+  }, [position[0], position[1]]) // isMoving removed — always animate smoothly
+
+  useEffect(() => () => cancelAnimationFrame(animRef.current.rafId), [])
+
+  return (
+    <Marker
+      ref={markerRef}
+      position={stablePos.current}
+      icon={icon}
+      eventHandlers={{ click: onClick ?? (() => {}) }}
+    >
+      {children}
+    </Marker>
+  )
+})
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
 
@@ -100,12 +162,11 @@ interface Props { vehicles: Vehicle[] }
 
 export default function FleetMap({ vehicles }: Props) {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
-  const [trips, setTrips]         = useState<Trip[]>([])
-  const [loadingTrips, setLoadingTrips] = useState(false)
   const [sosState, setSosState]   = useState<'idle'|'confirm'|'sending'|'sent'>('idle')
   const [vehicleRoutes, setVehicleRoutes] = useState<Record<string, [number,number][]>>({})
   const [resolving, setResolving] = useState(false)
   const [resolveStep, setResolveStep] = useState<'idle'|'ask'|'pick'|'sending'>('idle')
+  const [justSentSOS, setJustSentSOS] = useState(false)
   const mapRef = useRef<L.Map | null>(null)
 
   const { data: alertsData } = useAlerts(true)
@@ -115,21 +176,50 @@ export default function FleetMap({ vehicles }: Props) {
     ? vehicles.find(v => v.vehicle_id === selectedVehicle.vehicle_id) ?? selectedVehicle
     : null
 
-  const isSOS = liveSelected?.status === 'sos'
+  // isSOS is true if vehicle status is sos OR we just sent SOS (optimistic, before next poll)
+  const isSOS = liveSelected?.status === 'sos' || justSentSOS
   const loc   = liveSelected?.current_location
 
-  useEffect(() => { setSosState('idle'); setResolveStep('idle') }, [selectedVehicle?.vehicle_id])
+  useEffect(() => { setSosState('idle'); setResolveStep('idle'); setJustSentSOS(false) }, [selectedVehicle?.vehicle_id])
+  // Clear optimistic flag once the live data confirms SOS status
+  useEffect(() => { if (liveSelected?.status === 'sos') setJustSentSOS(false) }, [liveSelected?.status])
 
-  // Re-fetch selected vehicle route whenever vehicle changes
+  // Re-fetch selected vehicle route whenever selected vehicle changes
   useEffect(() => {
     if (!liveSelected) return
     fetchRoute(liveSelected.vehicle_id)
   }, [liveSelected?.vehicle_id])
 
-  // Auto-fetch & keep routes for any SOS vehicle so red line appears immediately
+  // Periodic route refresh: keep routes current for all moving/SOS/selected vehicles
   useEffect(() => {
-    vehicles.filter(v => v.status === 'sos').forEach(v => fetchRoute(v.vehicle_id))
-  }, [vehicles.map(v => `${v.vehicle_id}:${v.status}`).join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+    const refreshRoutes = () => {
+      const targets = new Set<string>()
+      vehicles.forEach(v => {
+        const isMoving = (v.current_location?.speed ?? 0) > 0 && v.current_location?.source
+        if (isMoving || v.status === 'sos') targets.add(v.vehicle_id)
+      })
+      if (liveSelected) targets.add(liveSelected.vehicle_id)
+      targets.forEach(vid => fetchRoute(vid))
+    }
+    refreshRoutes()
+    const interval = setInterval(refreshRoutes, 4000)
+    return () => clearInterval(interval)
+  }, [vehicles.length, liveSelected?.vehicle_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear route polyline only when trip truly completes (source becomes empty after task done)
+  useEffect(() => {
+    vehicles.forEach(v => {
+      const noActiveTrip = !v.current_location?.source
+      if (noActiveTrip && vehicleRoutes[v.vehicle_id]) {
+        setVehicleRoutes(prev => {
+          const next = { ...prev }
+          delete next[v.vehicle_id]
+          return next
+        })
+      }
+    })
+  }, [vehicles.map(v => `${v.vehicle_id}:${v.current_location?.source ?? ''}`).join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+
 
 
   const fetchRoute = async (vehicle_id: string) => {
@@ -145,40 +235,20 @@ export default function FleetMap({ vehicles }: Props) {
         .filter((wp: [number,number]) => wp[0] && wp[1])
       if (wps.length > 1) {
         setVehicleRoutes(prev => ({ ...prev, [vehicle_id]: wps }))
-      } else {
-        // Clear stale route if vehicle has no active route
-        setVehicleRoutes(prev => {
-          if (!prev[vehicle_id]) return prev
-          const next = { ...prev }
-          delete next[vehicle_id]
-          return next
-        })
       }
+      // If empty, keep the last known route — don't delete (avoids race conditions)
     } catch {}
   }
 
   const handleMarkerClick = async (vehicle: Vehicle) => {
     setSelectedVehicle(vehicle)
-    setTrips([])
     if (vehicle.current_location && mapRef.current) {
       mapRef.current.flyTo(
         [vehicle.current_location.latitude, vehicle.current_location.longitude],
         15, { duration: 1 }
       )
     }
-    // Always refresh route on click to get latest waypoints
     await fetchRoute(vehicle.vehicle_id)
-    setLoadingTrips(true)
-    try {
-      const token = localStorage.getItem('token')
-      const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
-      const res = await fetch(`${apiBase}/vehicles/${vehicle.vehicle_id}/trips`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      const data = await res.json()
-      setTrips(Array.isArray(data) ? data : [])
-    } catch { setTrips([]) }
-    finally { setLoadingTrips(false) }
   }
 
   const handleSOS = async () => {
@@ -198,6 +268,7 @@ export default function FleetMap({ vehicles }: Props) {
         }),
       })
       setSosState('sent')
+      setJustSentSOS(true)  // immediately show SOS panel without waiting for next poll
     } catch { setSosState('idle') }
   }
 
@@ -359,97 +430,78 @@ export default function FleetMap({ vehicles }: Props) {
           attribution='&copy; OpenStreetMap contributors'
         />
 
-        {/* Route line for selected vehicle - enhanced visibility */}
-        {liveSelected && (vehicleRoutes[liveSelected.vehicle_id] || []).length >= 2 && (() => {
-          const isSOSActive = liveSelected.status === 'sos'
-          const routeWaypoints = vehicleRoutes[liveSelected.vehicle_id]
+        {/* Routes for all vehicles that have one */}
+        {Object.entries(vehicleRoutes).map(([vid, wps]) => {
+          if (wps.length < 2) return null
+          const v = vehicles.find(x => x.vehicle_id === vid)
+          const isSelected = vid === liveSelected?.vehicle_id
+          const isSOS = v?.status === 'sos'
 
+          if (isSOS) {
+            return [
+              <Polyline key={`route-${vid}-glow`} positions={wps} pathOptions={{ color: '#ef4444', weight: 8, opacity: 0.15 }} />,
+              <Polyline key={`route-${vid}-line`} positions={wps} pathOptions={{ color: '#ef4444', weight: 4, opacity: 1, dashArray: '10 8', lineCap: 'round', lineJoin: 'round' }} />,
+            ]
+          }
+
+          if (isSelected) {
+            return [
+              <Polyline key={`route-${vid}-glow`} positions={wps} pathOptions={{ color: '#0d9488', weight: 8, opacity: 0.15 }} />,
+              <Polyline key={`route-${vid}-line`} positions={wps} pathOptions={{ color: '#0d9488', weight: 4, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }} />,
+            ]
+          }
+
+          // Non-selected moving vehicle — dimmer route
           return (
-            <>
-              {/* Background glow effect for better visibility */}
-              {!isSOSActive && (
-                <Polyline
-                  positions={routeWaypoints}
-                  pathOptions={{
-                    color:     '#0d9488',
-                    weight:    8,
-                    opacity:   0.2,
-                    dashArray: undefined,
-                  }}
-                />
-              )}
-              {/* Main route line */}
-              <Polyline
-                positions={routeWaypoints}
-                pathOptions={{
-                  color:     isSOSActive ? '#ef4444' : '#0d9488',
-                  weight:    isSOSActive ? 5 : 4,
-                  opacity:   isSOSActive ? 1 : 0.9,
-                  dashArray: isSOSActive ? '10 8' : undefined,
-                  lineCap:   'round',
-                  lineJoin:  'round',
-                }}
-              />
-            </>
+            <Polyline
+              key={`route-${vid}`}
+              positions={wps}
+              pathOptions={{ color: '#0d9488', weight: 2, opacity: 0.35, lineCap: 'round', lineJoin: 'round' }}
+            />
           )
-        })()}
+        })}
 
-        {/* Red pulsing routes for all SOS vehicles (even when not selected) */}
-        {vehicles
-          .filter(v => v.status === 'sos' && v.vehicle_id !== liveSelected?.vehicle_id)
-          .map(v => {
-            const wps = vehicleRoutes[v.vehicle_id] || []
-            if (wps.length < 2) return null
-            return (
-              <div key={`sos-${v.vehicle_id}`}>
-                {/* Glow background */}
-                <Polyline
-                  positions={wps}
-                  pathOptions={{ color: '#ef4444', weight: 8, opacity: 0.2 }}
-                />
-                {/* Main SOS route */}
-                <Polyline
-                  positions={wps}
-                  pathOptions={{
-                    color: '#ef4444',
-                    weight: 5,
-                    opacity: 1,
-                    dashArray: '10 8',
-                    lineCap: 'round',
-                    lineJoin: 'round',
-                  }}
-                />
-              </div>
-            )
-          })
-        }
+        {/* Source/Destination markers for vehicles with active routes */}
+        {Object.entries(vehicleRoutes).map(([vid, wps]) => {
+          if (wps.length < 2) return null
+          const v = vehicles.find(x => x.vehicle_id === vid)
+          if (!v?.current_location?.source) return null
+          const srcPos = wps[wps.length - 1]
+          const dstPos = wps[0]
+          return [
+            <CircleMarker key={`src-${vid}`} center={srcPos} radius={6} pathOptions={{ color: '#16a34a', fillColor: '#22c55e', fillOpacity: 1, weight: 2 }}>
+              <Popup><div className="text-xs font-medium text-green-700">Start: {v.current_location.source}</div></Popup>
+            </CircleMarker>,
+            <CircleMarker key={`dst-${vid}`} center={dstPos} radius={6} pathOptions={{ color: '#dc2626', fillColor: '#ef4444', fillOpacity: 1, weight: 2 }}>
+              <Popup><div className="text-xs font-medium text-red-700">End: {v.current_location.dest}</div></Popup>
+            </CircleMarker>,
+          ]
+        })}
 
-        {/* Markers with labels - smooth animation along route */}
-        {vehicles.filter(v => v.current_location).map((vehicle, idx) => {
+        {/* Animated markers — interpolate position between polls for smooth movement */}
+        {vehicles.filter(v => v.current_location).map((vehicle) => {
           const vloc = vehicle.current_location!
           const isMoving = (vloc.speed ?? 0) > 5
 
           return (
-            <Marker
-              key={`${vehicle.vehicle_id}-${isMoving ? 'moving' : 'idle'}`}
+            <AnimatedMarker
+              key={vehicle.vehicle_id}
               position={[vloc.latitude, vloc.longitude]}
               icon={getMarkerIcon(vehicle)}
-              eventHandlers={{
-                click: () => handleMarkerClick(vehicle),
-              }}
+              onClick={() => handleMarkerClick(vehicle)}
             >
               <Popup>
                 <div className="text-sm font-semibold">{vehicle.vehicle_id}</div>
                 <div className="text-xs text-gray-500">{vehicle.registration}</div>
                 <div className="text-xs mt-1">
                   {vehicle.status === 'sos' ? 'SOS ACTIVE' :
-                   (vloc.speed ?? 0) > 5 ? `${vloc.speed} km/h` : 'Idle'}
+                   isMoving ? `${vloc.speed} km/h` : 'Idle'}
                 </div>
                 {vloc.source && vloc.source !== vloc.dest && (
                   <div className="text-xs text-gray-400 mt-1">{vloc.source} → {vloc.dest}</div>
                 )}
               </Popup>
-            </Marker>
+            </AnimatedMarker>
           )
         })}
       </MapContainer>
@@ -570,11 +622,15 @@ export default function FleetMap({ vehicles }: Props) {
 
                 {/* Step 3 — Pick replacement vehicle */}
                 {resolveStep === 'pick' && (() => {
-                  const idleVehicles = vehicles.filter(v =>
-                    v.vehicle_id !== liveSelected?.vehicle_id &&
-                    v.status !== 'sos' &&
-                    v.status === 'idle'
-                  )
+                  const dist = (v: Vehicle) => {
+                    if (!loc || !v.current_location) return 9999
+                    const dlat = (v.current_location.latitude - loc.latitude) * 111
+                    const dlon = (v.current_location.longitude - loc.longitude) * 111 * Math.cos(loc.latitude * Math.PI / 180)
+                    return Math.sqrt(dlat*dlat + dlon*dlon)
+                  }
+                  const idleVehicles = vehicles
+                    .filter(v => v.vehicle_id !== liveSelected?.vehicle_id && v.status === 'idle')
+                    .sort((a, b) => dist(a) - dist(b))
                   const otherVehicles = vehicles.filter(v =>
                     v.vehicle_id !== liveSelected?.vehicle_id &&
                     v.status !== 'sos' &&
@@ -871,41 +927,6 @@ export default function FleetMap({ vehicles }: Props) {
               </div>
             )}
 
-            {/* Trip History & Active Trips */}
-            <div className="p-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                Trips {trips.length > 0 && `(${trips.length})`}
-              </p>
-              {loadingTrips ? (
-                <p className="text-xs text-gray-400">Loading...</p>
-              ) : trips.length === 0 ? (
-                <p className="text-xs text-gray-400">No active or past trips</p>
-              ) : (
-                <div className="space-y-2">
-                  {trips.slice(0, 5).map((trip, i) => {
-                    const t = trip as any
-                    const isActive = t.status === 'active'
-                    return (
-                      <div key={t.trip_id || i} className={`border rounded-lg p-3 ${isActive ? 'border-teal-200 bg-teal-50' : 'border-gray-100'}`}>
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <p className="text-xs font-medium text-gray-700">{t.source} → {t.dest}</p>
-                            <p className="text-[10px] text-gray-500 mt-0.5">
-                              {isActive ? '🚗 Active' : '✓ Completed'}
-                            </p>
-                          </div>
-                          {isActive && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-200 text-teal-700">
-                              IN PROGRESS
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}

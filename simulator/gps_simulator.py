@@ -10,6 +10,35 @@ CHAOS_MODE  = True
 
 ALL_VEHICLES = [f'vehicle-{i}' for i in range(1, 11)]
 
+# Canonical landmark coordinates — used to correct stored task coords at runtime
+LANDMARK_COORDS = {
+    'Gandhipuram Bus Stand':  (11.0168, 76.9558),
+    'Coimbatore Airport':     (11.0275, 77.0434),
+    'RS Puram':               (10.9987, 76.9617),
+    'Peelamedu':              (11.0167, 77.0081),
+    'Ukkadam':                (10.9847, 76.9762),
+    'Singanallur':            (11.0009, 77.0289),
+    'Tidel Park':             (11.0130, 77.0147),
+    'Podanur Junction':       (10.9704, 76.9605),
+    'Saibaba Colony':         (11.0110, 76.9676),
+    'Ganapathy':              (11.0228, 76.9632),
+    'Race Course':            (11.0057, 76.9636),
+    'Vadavalli':              (11.0236, 76.8929),
+    'Hopes College':          (11.0168, 76.9543),
+    'Kuniyamuthur':           (10.9580, 76.9740),
+    'Kovaipudur':             (10.9467, 76.9512),
+    'Thondamuthur':           (10.9748, 76.8711),
+    'Sulur':                  (11.0302, 77.1200),
+    'Kaniyur':                (11.0390, 77.0560),
+    'Mettupalayam Road':      (11.0600, 76.9380),
+    'Avinashi Road':          (11.0458, 77.0189),
+    'Town Hall':              (11.0024, 76.9660),
+    'CODISSIA':               (11.0302, 77.0327),
+    'Brookefields Mall':      (11.0205, 77.0059),
+    'Prozone Mall':           (11.0152, 77.0147),
+    'Coimbatore Junction':    (11.0021, 76.9689),
+}
+
 TRAFFIC_ZONES = [
     {'center': (11.0168, 76.9558), 'radius': 0.005, 'name': 'Gandhipuram'},
     {'center': (11.0050, 76.9650), 'radius': 0.004, 'name': 'Race Course'},
@@ -61,12 +90,32 @@ def get_speed_limit(lat, lon):
 
 
 def get_road_route(start, end):
-    return get_simulated_route(start, end)
+    """Fetch a full-detail road route from OSRM. Falls back to straight-line on error."""
+    try:
+        url = (
+            f"http://router.project-osrm.org/route/v1/driving/"
+            f"{start[1]},{start[0]};{end[1]},{end[0]}"
+            f"?overview=full&geometries=geojson&steps=false"
+        )
+        resp = requests.get(url, timeout=8)
+        data = resp.json()
+        if data.get('code') != 'Ok':
+            print(f"[OSRM] Bad response: {data.get('code')} — falling back")
+            return get_simulated_route(start, end)
+
+        coords = data['routes'][0]['geometry']['coordinates']  # [[lon, lat], ...]
+        wps = [(round(c[1], 6), round(c[0], 6)) for c in coords]
+        print(f"[OSRM] {len(wps)} road waypoints fetched")
+        return wps
+    except Exception as e:
+        print(f"[OSRM] Error: {e} — falling back")
+        return get_simulated_route(start, end)
 
 
 def get_simulated_route(start, end):
+    """Straight-line fallback: 25 evenly-spaced waypoints."""
     wps = [start]
-    steps = 6
+    steps = 25
     for i in range(1, steps):
         f = i / steps
         lat = start[0] + (end[0] - start[0]) * f
@@ -76,17 +125,28 @@ def get_simulated_route(start, end):
     return wps
 
 
-def inject_chaos(speed, fuel, speed_limit):
-    anomaly = random.choice(['n', 'n', 'n', 'n', 'n', 'overspeed', 'fuel_theft'])
+def inject_chaos(speed, fuel, speed_limit, last_chaos_alert=None):
+    # 1-in-12 chance of any anomaly per waypoint (reduced from 2-in-7)
+    anomaly = random.choice(['n'] * 14 + ['overspeed', 'fuel_theft', 'sos'])
     alert_type = None
     if anomaly == 'overspeed':
-        speed = round(random.uniform(speed_limit + 10, speed_limit + 40), 2)
+        speed = round(random.uniform(speed_limit + 10, speed_limit + 30), 2)
         alert_type = 'OVERSPEEDING'
         print(f' CHAOS overspeed {speed} (limit {speed_limit})')
     elif anomaly == 'fuel_theft':
-        fuel = max(5, round(fuel - random.uniform(10, 20), 2))
-        alert_type = 'FUEL_THEFT'
-        print(f' CHAOS fuel theft  {fuel}%')
+        # Respect cooldown on the actual fuel modification too (not just alerts)
+        now_ts = time.time()
+        last = (last_chaos_alert or {}).get('FUEL_THEFT', 0)
+        if now_ts - last > 120:
+            fuel = round(fuel - random.uniform(3, 8), 2)  # reduced from 10-20%
+            alert_type = 'FUEL_THEFT'
+            print(f' CHAOS fuel theft  {fuel}%')
+    elif anomaly == 'sos':
+        now_ts = time.time()
+        last = (last_chaos_alert or {}).get('SOS', 0)
+        if now_ts - last > 300:  # 5 min cooldown between SOS events
+            alert_type = 'SOS'
+            print(f' CHAOS SOS triggered')
     return speed, fuel, alert_type
 
 
@@ -317,10 +377,17 @@ def push_seeded_tasks_to_redis():
 
 
 def simulate_vehicle(vehicle_id: str):
-    fuel     = round(random.uniform(75, 100), 2)
-    odometer = round(random.uniform(10000, 80000), 1)
-    fatigue  = 0   # minutes driven this shift
-    last_chaos_alert: dict[str, float] = {}  # alert_type  timestamp, to throttle
+    # Seed fuel and odometer from Redis so values persist across trips
+    _seed = redis_client.get(f'vehicle:{vehicle_id}:location')
+    if _seed:
+        _d = json.loads(_seed)
+        fuel     = float(_d.get('fuel_level', round(random.uniform(75, 100), 2)))
+        odometer = float(_d.get('odometer',   round(random.uniform(10000, 80000), 1)))
+    else:
+        fuel     = round(random.uniform(75, 100), 2)
+        odometer = round(random.uniform(10000, 80000), 1)
+    fatigue  = 0
+    last_chaos_alert: dict[str, float] = {}
 
     print(f' {vehicle_id} thread started')
 
@@ -346,8 +413,9 @@ def simulate_vehicle(vehicle_id: str):
 
         source  = task['source']
         dest    = task['dest']
-        start   = tuple(task['start_coords'])
-        end     = tuple(task['end_coords'])
+        # Always use canonical landmark coords — stored start/end_coords may be wrong
+        start   = LANDMARK_COORDS.get(source) or tuple(task['start_coords'])
+        end     = LANDMARK_COORDS.get(dest)   or tuple(task['end_coords'])
         task_id = task.get('task_id', '')
         driver_id = task.get('driver_id', f'driver-{vehicle_id.split("-")[1]}')
 
@@ -378,12 +446,37 @@ def simulate_vehicle(vehicle_id: str):
 
             traffic_mult = get_traffic_multiplier(lat, lon)
             speed_limit, speed_zone = get_speed_limit(lat, lon)
-            base_speed = random.uniform(20, 65) * traffic_mult
+            base_speed = random.uniform(30, 55) * traffic_mult
             speed = round(max(5, min(speed_limit, base_speed)), 2)
 
-            # Fuel: consumption higher on busy roads
-            fuel_burn = random.uniform(0.05, 0.3) * (1 + (1 - traffic_mult) * 0.3)
-            fuel = max(5, round(fuel - fuel_burn, 2))
+            # ~0.04% per waypoint → ~12% per 300-waypoint trip (realistic city consumption)
+            fuel_burn = random.uniform(0.03, 0.05) * (1 + (1 - traffic_mult) * 0.2)
+            fuel = round(fuel - fuel_burn, 2)
+
+            # ── In-route refuel at 5% ──────────────────────────────────────
+            if fuel <= 20:
+                write_location(vehicle_id, lat, lon, 0, fuel,
+                               'idle', source, dest,
+                               round((wp_index / max(len(waypoints) - 1, 1)) * 50, 1),
+                               odometer, round(fatigue))
+                notify_in_app(vehicle_id, f'{vehicle_id} pulling over to refuel — {fuel:.1f}% remaining', 'warning')
+                print(f'[Fuel] {vehicle_id} refuelling en route at waypoint {wp_index}')
+                time.sleep(10)  # refuel stop
+                fuel = round(random.uniform(75, 95), 2)
+                notify_in_app(vehicle_id, f'{vehicle_id} refuelled to {fuel:.0f}% — continuing', 'success')
+                print(f'[Fuel] {vehicle_id} refuelled to {fuel}%')
+
+            # ── Fuel exhausted → auto SOS ──────────────────────────────────
+            if fuel <= 0:
+                fuel = 0
+                write_location(vehicle_id, lat, lon, 0, fuel, 'sos', source, dest,
+                               round((wp_index / max(len(waypoints) - 1, 1)) * 50, 1),
+                               odometer, round(fatigue))
+                create_alert(vehicle_id, driver_id, 'SOS', speed=0, fuel=0, lat=lat, lon=lon)
+                notify_in_app(vehicle_id, f'FUEL EMPTY — automatic SOS triggered for {vehicle_id}', 'alert')
+                redis_client.set(f'vehicle:{vehicle_id}:sos_lock', '1', ex=86400)
+                print(f'[SOS] {vehicle_id} fuel exhausted — SOS triggered')
+                break
 
             # Odometer
             if wp_index > 0:
@@ -392,7 +485,7 @@ def simulate_vehicle(vehicle_id: str):
                 odometer += dist
 
             # Driver fatigue  every 120 min, speed drops
-            fatigue += (2 / 60)
+            fatigue += 0.5  # 0.5 min per step → ~150 min for a full 300-wp trip
             if fatigue > 120:
                 speed = round(speed * 0.75, 2)
                 if random.random() < 0.01:
@@ -401,16 +494,19 @@ def simulate_vehicle(vehicle_id: str):
             # Chaos
             alert_type = None
             if CHAOS_MODE:
-                speed, fuel, alert_type = inject_chaos(speed, fuel, speed_limit)
+                speed, fuel, alert_type = inject_chaos(speed, fuel, speed_limit, last_chaos_alert)
                 if alert_type:
                     now_ts = time.time()
+                    cooldown = 300 if alert_type == 'SOS' else 120
                     last = last_chaos_alert.get(alert_type, 0)
-                    if now_ts - last > 120:  # throttle  one alert per 2 min per type
+                    if now_ts - last > cooldown:
                         create_alert(vehicle_id, driver_id, alert_type, speed, fuel, lat, lon)
-                        notify_in_app(vehicle_id,
-                            f'{alert_type} on {vehicle_id}  speed {speed} km/h' if alert_type == 'OVERSPEEDING'
-                            else f'Fuel theft suspected on {vehicle_id}',
-                            'alert')
+                        if alert_type == 'SOS':
+                            notify_in_app(vehicle_id, f'SOS alert from {vehicle_id}  emergency!', 'alert')
+                        elif alert_type == 'OVERSPEEDING':
+                            notify_in_app(vehicle_id, f'{alert_type} on {vehicle_id}  speed {speed} km/h', 'alert')
+                        else:
+                            notify_in_app(vehicle_id, f'Fuel theft suspected on {vehicle_id}', 'alert')
                         last_chaos_alert[alert_type] = now_ts
 
             # Traffic signal stop
@@ -422,15 +518,9 @@ def simulate_vehicle(vehicle_id: str):
                 signal_cooldown = signal_wait
                 print(f' {vehicle_id} red light ({signal_wait}s)')
 
-            status   = 'moving' if speed > 5 else 'idle'
-            # Outbound leg = 0-50% of overall journey
+            status   = 'sos' if alert_type == 'SOS' else ('moving' if speed > 5 else 'idle')
             progress = round((wp_index / max(len(waypoints) - 1, 1)) * 50, 1)
 
-            # Low fuel warning
-            if fuel < 15 and random.random() < 0.05:
-                notify_in_app(vehicle_id, f'{vehicle_id} low fuel  {fuel}%', 'warning')
-
-            # Speed zone warning
             if speed_zone and speed > speed_limit:
                 notify_in_app(vehicle_id, f'{vehicle_id} speeding in {speed_zone}', 'alert')
 
@@ -441,7 +531,7 @@ def simulate_vehicle(vehicle_id: str):
 
             advance = 1
             wp_index += advance
-            time.sleep(0.2)
+            time.sleep(0.3)
 
         # Arrived at destination  50% of round trip done
         dest_pos = waypoints[-1]
@@ -459,7 +549,7 @@ def simulate_vehicle(vehicle_id: str):
         # Fatigue reset at destination (driver rest)
         fatigue = 0
 
-        rest = random.randint(20, 45)
+        rest = random.randint(5, 10)
         print(f'  {vehicle_id} resting {rest}s')
         time.sleep(rest)
 
@@ -485,29 +575,52 @@ def simulate_vehicle(vehicle_id: str):
 
             traffic_mult = get_traffic_multiplier(lat, lon)
             speed_limit, _ = get_speed_limit(lat, lon)
-            base_speed = random.uniform(20, 65) * traffic_mult
+            base_speed = random.uniform(30, 55) * traffic_mult
             speed = round(max(5, min(speed_limit, base_speed)), 2)
 
-            fuel_burn = random.uniform(0.05, 0.3) * (1 + (1 - traffic_mult) * 0.3)
-            fuel = max(5, round(fuel - fuel_burn, 2))
+            fuel_burn = random.uniform(0.03, 0.05) * (1 + (1 - traffic_mult) * 0.2)
+            fuel = round(fuel - fuel_burn, 2)
+
+            # ── In-route refuel at 5% ──────────────────────────────────────
+            if fuel <= 20:
+                write_location(vehicle_id, lat, lon, 0, fuel, 'idle', dest, source,
+                               round(50 + (wp_index / max(len(reverse_wps) - 1, 1)) * 50, 1),
+                               odometer, round(fatigue))
+                notify_in_app(vehicle_id, f'{vehicle_id} pulling over to refuel — {fuel:.1f}% remaining', 'warning')
+                print(f'[Fuel] {vehicle_id} refuelling en route (return leg) at waypoint {wp_index}')
+                time.sleep(10)
+                fuel = round(random.uniform(75, 95), 2)
+                notify_in_app(vehicle_id, f'{vehicle_id} refuelled to {fuel:.0f}% — continuing', 'success')
+                print(f'[Fuel] {vehicle_id} refuelled to {fuel}%')
+
+            # ── Fuel exhausted → auto SOS ──────────────────────────────────
+            if fuel <= 0:
+                fuel = 0
+                write_location(vehicle_id, lat, lon, 0, fuel, 'sos', dest, source,
+                               round(50 + (wp_index / max(len(reverse_wps) - 1, 1)) * 50, 1),
+                               odometer, round(fatigue))
+                create_alert(vehicle_id, driver_id, 'SOS', speed=0, fuel=0, lat=lat, lon=lon)
+                notify_in_app(vehicle_id, f'FUEL EMPTY — automatic SOS triggered for {vehicle_id}', 'alert')
+                redis_client.set(f'vehicle:{vehicle_id}:sos_lock', '1', ex=86400)
+                print(f'[SOS] {vehicle_id} fuel exhausted — SOS triggered')
+                break
 
             if wp_index > 0:
                 prev = reverse_wps[wp_index - 1]
                 dist = math.sqrt((lat - prev[0])**2 + (lon - prev[1])**2) * 111
                 odometer += dist
 
-            fatigue += (2 / 60)
+            fatigue += 0.5  # 0.5 min per step → ~150 min for a full 300-wp trip
 
             alert_type = None
             if CHAOS_MODE:
-                speed, fuel, alert_type = inject_chaos(speed, fuel, speed_limit)
+                speed, fuel, alert_type = inject_chaos(speed, fuel, speed_limit, last_chaos_alert)
                 if alert_type:
                     now_ts = time.time()
                     last = last_chaos_alert.get(alert_type, 0)
                     if now_ts - last > 120:
                         create_alert(vehicle_id, driver_id, alert_type, speed, fuel, lat, lon)
-                        notify_in_app(vehicle_id,
-                            f'{alert_type} on {vehicle_id}', 'alert')
+                        notify_in_app(vehicle_id, f'{alert_type} on {vehicle_id}', 'alert')
                         last_chaos_alert[alert_type] = now_ts
 
             if signal_cooldown > 0:
@@ -518,7 +631,6 @@ def simulate_vehicle(vehicle_id: str):
                 signal_cooldown = signal_wait
 
             status   = 'moving' if speed > 5 else 'idle'
-            # Return leg = 50-100% of overall journey
             progress = round(50 + (wp_index / max(len(reverse_wps) - 1, 1)) * 50, 1)
 
             write_location(vehicle_id, lat, lon, speed, fuel,
@@ -528,7 +640,7 @@ def simulate_vehicle(vehicle_id: str):
 
             advance = 1
             wp_index += advance
-            time.sleep(0.2)
+            time.sleep(0.3)
 
         # Back at source - round trip complete
         origin_pos = reverse_wps[-1]
@@ -560,15 +672,15 @@ def init_vehicle_positions():
     """Initialize all vehicles with random starting positions."""
     landmarks_list = [
         ('Gandhipuram Bus Stand', (11.0168, 76.9558)),
-        ('Coimbatore Airport', (11.0275, 77.0433)),
-        ('RS Puram', (10.9987, 76.9508)),
-        ('Peelamedu', (11.0168, 77.0081)),
-        ('Ukkadam', (10.9847, 76.9762)),
-        ('Singanallur', (11.0012, 77.0289)),
-        ('Tidel Park', (11.0130, 77.0180)),
-        ('Podanur Junction', (10.9697, 76.9785)),
-        ('Saibaba Colony', (11.0080, 76.9720)),
-        ('Ganapathy', (11.0230, 76.9640)),
+        ('Coimbatore Airport',   (11.0275, 77.0434)),
+        ('RS Puram',             (10.9987, 76.9617)),
+        ('Peelamedu',            (11.0167, 77.0081)),
+        ('Ukkadam',              (10.9847, 76.9762)),
+        ('Singanallur',          (11.0009, 77.0289)),
+        ('Tidel Park',           (11.0130, 77.0147)),
+        ('Podanur Junction',     (10.9704, 76.9605)),
+        ('Saibaba Colony',       (11.0110, 76.9676)),
+        ('Ganapathy',            (11.0228, 76.9632)),
     ]
 
     for idx, vid in enumerate(ALL_VEHICLES):

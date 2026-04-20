@@ -21,7 +21,7 @@ def get_table():
         aws_secret_access_key="test" if settings.use_localstack else None,
         config=Config(retries={"max_attempts": 1}, connect_timeout=3, read_timeout=3),
     )
-    return dynamodb.Table("Maintenance")
+    return dynamodb.Table("MaintenanceRecords")
 
 class MaintenanceCreate(BaseModel):
     vehicle_id: str

@@ -37,12 +37,15 @@ def put_vehicle(vehicle: dict) -> dict:
 # ─── Trips ────────────────────────────────────────────────────────────────────
 
 def get_trips_for_vehicle(vehicle_id: str, limit: int = 50) -> list:
-    table = get_table(TRIPS_TABLE)
+    # Tasks table holds all trips (active + completed); Trips table is unused
+    table = get_table('Tasks')
     response = table.scan(
         FilterExpression=Attr("vehicle_id").eq(vehicle_id),
-        Limit=limit,
     )
-    return response.get("Items", [])
+    items = response.get("Items", [])
+    # Sort newest first
+    items.sort(key=lambda x: x.get("created_at", x.get("timestamp", "")), reverse=True)
+    return items[:limit]
 
 
 def put_trip(trip: dict) -> dict:
@@ -104,3 +107,49 @@ def get_driver_by_id(driver_id: str) -> dict | None:
     table = get_table(DRIVERS_TABLE)
     response = table.get_item(Key={DRIVER_PK: driver_id})
     return response.get("Item")
+
+
+# ─── Users ────────────────────────────────────────────────────────────────────
+
+def get_user_by_id(user_id: str) -> dict | None:
+    table = get_table('Users')
+    response = table.get_item(Key={'user_id': user_id})
+    return response.get("Item")
+
+
+def update_user(user_id: str, updates: dict) -> dict | None:
+    if not updates:
+        return get_user_by_id(user_id)
+    table = get_table('Users')
+    expr = "SET " + ", ".join(f"#f{i} = :v{i}" for i in range(len(updates)))
+    names = {f"#f{i}": k for i, k in enumerate(updates)}
+    values = {f":v{i}": v for i, v in enumerate(updates.values())}
+    resp = table.update_item(
+        Key={'user_id': user_id},
+        UpdateExpression=expr,
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=values,
+        ReturnValues="ALL_NEW",
+    )
+    return resp.get("Attributes")
+
+
+def get_user_activity(user_id: str, limit: int = 50) -> list:
+    try:
+        table = get_table('ActivityLog')
+        resp = table.scan(FilterExpression=Attr("user_id").eq(user_id))
+        items = resp.get("Items", [])
+        items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        return items[:limit]
+    except Exception:
+        return []
+
+
+def create_activity_log(activity: dict) -> None:
+    try:
+        table = get_table('ActivityLog')
+        if "activity_id" not in activity:
+            activity["activity_id"] = str(uuid.uuid4())
+        table.put_item(Item=activity)
+    except Exception:
+        pass

@@ -1,4 +1,13 @@
 from pydantic_settings import BaseSettings
+from pathlib import Path
+
+# Load .env first, then .env.local (if present) — .env.local wins, so local VS Code
+# dev overrides Docker hostnames without touching .env which docker-compose uses.
+_base = Path(__file__).resolve().parent.parent  # backend/
+_env_files = [str(_base / ".env")]
+_local = _base / ".env.local"
+if _local.exists():
+    _env_files.append(str(_local))
 
 class Settings(BaseSettings):
     use_localstack: bool = True
@@ -23,11 +32,10 @@ class Settings(BaseSettings):
     # Frontend URL
     frontend_url: str = "http://localhost:5173"
     anthropic_api_key: str = ""
-
     groq_api_key: str = ""
 
     class Config:
-        env_file = ".env"
+        env_file = _env_files
         case_sensitive = False
         extra = "ignore"
 

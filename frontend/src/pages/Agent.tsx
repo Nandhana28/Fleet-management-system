@@ -190,6 +190,7 @@ function ToolBadge({ name, done }: { name: string; done: boolean }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Agent() {
   const [chats,    setChats]    = useState<Chat[]>(loadChats)
+  const [modelInfo, setModelInfo] = useState('Groq · Fleet-aware')
   const [activeId, setActiveId_] = useState<string | null>(() => {
     // Detect new login: if token changed since last run, start fresh
     const currentToken = localStorage.getItem('token') || ''
@@ -221,6 +222,15 @@ export default function Agent() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeChat = chats.find(c => c.id === activeId) ?? chats[0]
+
+  // Fetch model info on mount
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    fetch(`${API_BASE}/agent/info`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.model_label) setModelInfo(d.model_label) })
+      .catch(() => {})
+  }, [])
 
   // Persist chats whenever they change (debounced to avoid hammering localStorage)
   useEffect(() => { saveChats(chats) }, [chats])
@@ -305,7 +315,7 @@ export default function Agent() {
           const last = msgs[msgs.length - 1]
           if (last.role === 'assistant') {
             last.toolCalls = last.toolCalls?.map(t => ({ ...t, done: true }))
-            last.content += chunk
+            last.content = chunk
           }
           return { ...c, messages: msgs }
         }),
@@ -418,7 +428,7 @@ export default function Agent() {
           <div className="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center text-white text-base">🤖</div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-gray-800 truncate">{activeChat?.title ?? 'FleetPulse AI'}</h2>
-            <p className="text-xs text-gray-400">Powered by Groq · Fleet-aware</p>
+            <p className="text-xs text-gray-400">Powered by {modelInfo}</p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -440,9 +450,10 @@ export default function Agent() {
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-xl ${msg.role === 'user' ? '' : 'w-full'}`}>
-                {msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
-                  <div className="flex flex-col gap-0.5 mb-2">
-                    {msg.toolCalls.map((tc, j) => <ToolBadge key={j} name={tc.name} done={tc.done} />)}
+                {msg.role === 'assistant' && msg.isStreaming && msg.toolCalls && msg.toolCalls.some(t => !t.done) && (
+                  <div className="flex items-center gap-1.5 text-xs text-teal-600 mb-2 opacity-60">
+                    <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                    Thinking...
                   </div>
                 )}
                 <div className={`px-4 py-3 rounded-2xl text-sm shadow-sm ${

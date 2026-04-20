@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 from app.services import auth_service
 from app.config import settings
+from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -39,6 +40,10 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
+    new_password: str
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
     new_password: str
 
 # ─── Register ─────────────────────────────────────────────────────────────────
@@ -153,3 +158,21 @@ async def google_callback(code: str, state: str = 'login'):
         elif error == "account_already_exists":
             return RedirectResponse(f"{settings.frontend_url}/signup?error=already_exists")
         raise HTTPException(status_code=400, detail=error)
+
+
+@router.post("/change-password")
+def change_password(req: ChangePasswordRequest, user=Depends(get_current_user)):
+    try:
+        user_data = auth_service.get_user_by_email(user['email'])
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not auth_service.verify_password(req.old_password, user_data.get('password_hash', '')):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        new_hash = auth_service.hash_password(req.new_password)
+        from app.db.queries import update_user
+        update_user(user['user_id'], {'password_hash': new_hash})
+        return {"message": "Password changed successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

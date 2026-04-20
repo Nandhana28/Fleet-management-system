@@ -5,6 +5,6 @@ export function useVehicles() {
   return useQuery({
     queryKey: ['vehicles'],
     queryFn: getVehicles,
-    refetchInterval: 5000,
+    refetchInterval: 500,
   })
 }

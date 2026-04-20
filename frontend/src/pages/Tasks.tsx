@@ -17,6 +17,8 @@ export default function Tasks() {
   const [loading, setLoading]     = useState(true)
   const [creating, setCreating]   = useState(false)
   const [showForm, setShowForm]   = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [historyVehicle, setHistoryVehicle] = useState<string>('all')
   const [form, setForm] = useState({
     vehicle_id: '', driver_id: '', source: '',
     dest: '', priority: 'medium', notes: '',
@@ -24,26 +26,28 @@ export default function Tasks() {
 
   const load = async () => {
     try {
-      const [tRes, vRes, dRes, lRes] = await Promise.all([
+      const [tRes, vRes] = await Promise.all([
         api.get('/tasks'),
         api.get('/vehicles'),
-        api.get('/analytics/drivers'),
-        api.get('/tasks/landmarks'),
       ])
       setTasks(Array.isArray(tRes.data) ? tRes.data : tRes.data?.tasks || [])
       setVehicles(Array.isArray(vRes.data) ? vRes.data : vRes.data?.vehicles || [])
-      setDrivers(Array.isArray(dRes.data) ? dRes.data : dRes.data?.drivers || [])
-      setLandmarks(lRes.data?.landmarks || [])
     } catch {
-      showToast('Failed to load data', 'error')
+      showToast('Failed to load trips', 'error')
     } finally {
       setLoading(false)
     }
+    // Non-critical: load independently so a failure doesn't block the page
+    api.get('/analytics/drivers').then(r => {
+      setDrivers(Array.isArray(r.data) ? r.data : r.data?.drivers || [])
+    }).catch(() => {})
+    api.get('/tasks/landmarks').then(r => {
+      setLandmarks(r.data?.landmarks || [])
+    }).catch(() => {})
   }
 
   useEffect(() => {
     load()
-    // Poll every 5s for live status
     const interval = setInterval(load, 5000)
     return () => clearInterval(interval)
   }, [])
@@ -85,13 +89,20 @@ export default function Tasks() {
     }
   }
 
-  // Separate active and completed tasks
-  const activeTasks = tasks.filter(t => t.status === 'active')
+  const activeTasks    = tasks.filter(t => t.status === 'active')
   const completedTasks = tasks.filter(t => t.status === 'completed')
   const busyVehicleIds = new Set(activeTasks.map((t: any) => t.vehicle_id))
   const availableVehicles = vehicles.filter((v: any) =>
     !busyVehicleIds.has(v.vehicle_id) && v.status !== 'sos' && v.status !== 'moving'
   )
+
+  // All trips (active + completed) for history view — sorted newest first
+  const allTrips = [...tasks].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+  const vehiclesWithHistory = Array.from(new Set(allTrips.map((t: any) => t.vehicle_id).filter(Boolean))).sort()
+
+  const filteredHistory = historyVehicle === 'all'
+    ? allTrips
+    : allTrips.filter(t => t.vehicle_id === historyVehicle)
 
   if (loading) return (
     <div className="h-full flex items-center justify-center bg-gray-50">
@@ -109,31 +120,46 @@ export default function Tasks() {
             <h2 className="text-xl font-semibold text-gray-800">Trip Assignment</h2>
             <p className="text-sm text-gray-400 mt-0.5">Assign routes to drivers — vehicles start moving immediately</p>
           </div>
-          <button
-            onClick={() => setShowForm(true)}
-            className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-teal-700 transition-colors"
-          >
-            + Assign Trip
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowHistory(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 transition-colors shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Trip History
+              {allTrips.length > 0 && (
+                <span className="bg-gray-100 text-gray-600 text-xs px-1.5 py-0.5 rounded-full">
+                  {allTrips.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-teal-700 transition-colors"
+            >
+              + Assign Trip
+            </button>
+          </div>
         </div>
 
         {/* Summary */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           {[
-            { label: 'Active Trips',      value: activeTasks.length,       color: 'text-teal-600' },
+            { label: 'Active Trips',       value: activeTasks.length,       color: 'text-teal-600' },
             { label: 'Available Vehicles', value: availableVehicles.length, color: 'text-green-600' },
-            { label: 'Total Vehicles',    value: vehicles.length,           color: 'text-gray-600' },
+            { label: 'Total Vehicles',     value: vehicles.length,           color: 'text-gray-600' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-xs text-gray-400">{label}</p>
-              </div>
+              <p className="text-xs text-gray-400 mb-1">{label}</p>
               <p className={`text-2xl font-bold ${color}`}>{value}</p>
             </div>
           ))}
         </div>
 
-        {/* Active Trips Only */}
+        {/* Active Trips */}
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm">
           <div className="p-4 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-700">
@@ -160,17 +186,15 @@ export default function Tasks() {
           ) : (
             <div className="divide-y divide-gray-50">
               {activeTasks.map(task => {
-                const driver  = drivers.find((d: any) => d.driver_id === task.driver_id)
-                const vehicle = vehicles.find((v: any) => v.vehicle_id === task.vehicle_id)
-                const loc     = vehicle?.current_location
+                const driver   = drivers.find((d: any) => d.driver_id === task.driver_id)
+                const vehicle  = vehicles.find((v: any) => v.vehicle_id === task.vehicle_id)
+                const loc      = vehicle?.current_location
                 const isMoving = loc && loc.speed > 5
                 const isSOS    = vehicle?.status === 'sos'
 
                 return (
                   <div key={task.task_id} className={`p-4 ${isSOS ? 'bg-red-50' : ''}`}>
                     <div className="flex items-start gap-4">
-
-                      {/* Status dot */}
                       <div className="mt-1 shrink-0">
                         {isSOS ? (
                           <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse block" />
@@ -181,7 +205,6 @@ export default function Tasks() {
                         )}
                       </div>
 
-                      {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="text-sm font-semibold text-gray-800">{task.vehicle_id}</span>
@@ -196,7 +219,6 @@ export default function Tasks() {
                           )}
                         </div>
 
-                        {/* Route */}
                         <div className="flex items-center gap-1 text-xs mb-1">
                           <span className="font-medium text-teal-600">{task.source}</span>
                           <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -210,7 +232,6 @@ export default function Tasks() {
                           {task.notes && ` · ${task.notes}`}
                         </p>
 
-                        {/* Progress bar */}
                         {loc && (
                           <div className="mt-2">
                             <div className="flex justify-between text-xs text-gray-400 mb-1">
@@ -239,7 +260,6 @@ export default function Tasks() {
                         )}
                       </div>
 
-                      {/* Remove */}
                       <button
                         onClick={() => handleDelete(task.task_id)}
                         className="w-7 h-7 rounded-full bg-gray-100 hover:bg-red-50 hover:text-red-500 text-gray-400 flex items-center justify-center text-xs transition-colors shrink-0"
@@ -251,79 +271,173 @@ export default function Tasks() {
             </div>
           )}
         </div>
-
-        {/* Trip History */}
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm mt-6">
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-700">
-              Trip History
-              <span className="ml-2 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
-                {completedTasks.length}
-              </span>
-            </h3>
-          </div>
-
-          {completedTasks.length === 0 ? (
-            <div className="p-12 text-center">
-              <p className="text-4xl mb-3">📋</p>
-              <p className="text-sm text-gray-500 font-medium">No completed trips yet</p>
-              <p className="text-xs text-gray-400 mt-1">Completed trips will appear here</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-              {completedTasks.map(task => {
-                const driver  = drivers.find((d: any) => d.driver_id === task.driver_id)
-                const vehicle = vehicles.find((v: any) => v.vehicle_id === task.vehicle_id)
-
-                return (
-                  <div key={task.task_id} className="p-4">
-                    <div className="flex items-start gap-4">
-
-                      {/* Status dot */}
-                      <div className="mt-1 shrink-0">
-                        <span className="w-3 h-3 rounded-full bg-gray-400 block" />
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="text-sm font-semibold text-gray-800">{task.vehicle_id}</span>
-                          <span className="text-xs text-gray-400">{vehicle?.registration}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[task.priority] || ''}`}>
-                            {task.priority}
-                          </span>
-                        </div>
-
-                        {/* Route */}
-                        <div className="flex items-center gap-1 text-xs mb-1">
-                          <span className="font-medium text-gray-600">{task.source}</span>
-                          <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path d="M9 18l6-6-6-6" strokeWidth={2} strokeLinecap="round"/>
-                          </svg>
-                          <span className="font-medium text-gray-600">{task.dest}</span>
-                        </div>
-
-                        <p className="text-xs text-gray-400">
-                          Driver: {driver?.name || task.driver_id}
-                          {task.notes && ` · ${task.notes}`}
-                        </p>
-
-                        {task.completed_at && (
-                          <p className="text-xs text-gray-300 mt-1">
-                            Completed: {new Date(task.completed_at).toLocaleString()}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* Create Trip Modal */}
+      {/* ── Trip History Panel ─────────────────────────────────────────────── */}
+      {showHistory && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
+            onClick={() => setShowHistory(false)}
+          />
+
+          {/* Panel — slides in from right */}
+          <div className="absolute right-0 top-0 h-full w-full max-w-3xl bg-white shadow-2xl flex flex-col">
+
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50 shrink-0">
+              <div>
+                <h3 className="font-semibold text-gray-800">Trip History</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {filteredHistory.length} completed trip{filteredHistory.length !== 1 ? 's' : ''}
+                  {historyVehicle !== 'all' && ` for ${historyVehicle}`}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowHistory(false)}
+                className="w-8 h-8 rounded-full bg-white border border-gray-200 hover:bg-red-50 hover:border-red-200 text-gray-500 hover:text-red-500 flex items-center justify-center transition-colors"
+              >✕</button>
+            </div>
+
+            <div className="flex flex-1 overflow-hidden min-h-0">
+              {/* Vehicle filter sidebar */}
+              <div className="w-44 border-r border-gray-100 bg-gray-50 flex flex-col shrink-0 overflow-y-auto min-h-0">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-3 pt-4 pb-2">
+                  Filter by vehicle
+                </p>
+
+                <button
+                  onClick={() => setHistoryVehicle('all')}
+                  className={`flex items-center justify-between mx-2 mb-1 px-3 py-2 rounded-lg text-left text-xs font-medium transition-colors ${
+                    historyVehicle === 'all'
+                      ? 'bg-teal-600 text-white'
+                      : 'text-gray-700 hover:bg-white hover:shadow-sm'
+                  }`}
+                >
+                  <span>All Vehicles</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    historyVehicle === 'all' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    {allTrips.length}
+                  </span>
+                </button>
+
+                {vehiclesWithHistory.map(vid => {
+                  const count = completedTasks.filter(t => t.vehicle_id === vid).length
+                  return (
+                    <button
+                      key={vid}
+                      onClick={() => setHistoryVehicle(vid)}
+                      className={`flex items-center justify-between mx-2 mb-1 px-3 py-2 rounded-lg text-left text-xs font-medium transition-colors ${
+                        historyVehicle === vid
+                          ? 'bg-teal-600 text-white'
+                          : 'text-gray-700 hover:bg-white hover:shadow-sm'
+                      }`}
+                    >
+                      <span className="truncate">{vid.replace('vehicle-', 'Vehicle ')}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full shrink-0 ml-1 ${
+                        historyVehicle === vid ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        {count}
+                      </span>
+                    </button>
+                  )
+                })}
+
+                {vehiclesWithHistory.length === 0 && (
+                  <p className="text-xs text-gray-400 px-3 py-2">No history yet</p>
+                )}
+              </div>
+
+              {/* Trip list */}
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {filteredHistory.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                    <p className="text-4xl mb-3">📋</p>
+                    <p className="text-sm text-gray-500 font-medium">No trips yet</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {historyVehicle === 'all'
+                        ? 'Trips will appear here once vehicles complete their routes'
+                        : `${historyVehicle} has no completed trips yet`}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {filteredHistory.map((task, idx) => {
+                      const driver  = drivers.find((d: any) => d.driver_id === task.driver_id)
+                      const vehicle = vehicles.find((v: any) => v.vehicle_id === task.vehicle_id)
+
+                      return (
+                        <div key={task.task_id} className="p-4 hover:bg-gray-50 transition-colors">
+                          <div className="flex items-start gap-3">
+                            {/* Index */}
+                            <span className="text-xs text-gray-300 font-mono mt-0.5 w-5 shrink-0 text-right">
+                              {filteredHistory.length - idx}
+                            </span>
+
+                            {/* Dot */}
+                            <div className="mt-1.5 shrink-0">
+                              <span className={`w-2.5 h-2.5 rounded-full block ${task.status === 'completed' ? 'bg-gray-300' : task.status === 'active' ? 'bg-teal-400 animate-pulse' : 'bg-orange-300'}`} />
+                            </div>
+
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <span className="text-sm font-semibold text-gray-800">{task.vehicle_id?.replace('vehicle-', 'Vehicle ')}</span>
+                                {vehicle?.registration && (
+                                  <span className="text-xs text-gray-400">{vehicle.registration}</span>
+                                )}
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                  task.status === 'active' ? 'bg-teal-100 text-teal-700' :
+                                  task.status === 'completed' ? 'bg-gray-100 text-gray-600' :
+                                  'bg-orange-100 text-orange-700'
+                                }`}>
+                                  {task.status === 'active' ? 'In Progress' : task.status === 'completed' ? 'Completed' : task.status}
+                                </span>
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_COLORS[task.priority] || 'bg-gray-100 text-gray-600'}`}>
+                                  {task.priority}
+                                </span>
+                              </div>
+
+                              {/* Route */}
+                              <div className="flex items-center gap-1.5 text-xs mb-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
+                                <span className="font-medium text-gray-700">{task.source}</span>
+                                <svg className="w-3 h-3 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path d="M9 18l6-6-6-6" strokeWidth={2} strokeLinecap="round"/>
+                                </svg>
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                                <span className="font-medium text-gray-700">{task.dest}</span>
+                              </div>
+
+                              <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                                <span>Driver: {driver?.name || task.driver_id}</span>
+                                {task.completed_at && (
+                                  <span className="flex items-center gap-1">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    {new Date(task.completed_at).toLocaleString()}
+                                  </span>
+                                )}
+                                {task.notes && <span className="italic truncate">{task.notes}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Trip Modal ──────────────────────────────────────────────── */}
       {showForm && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -392,7 +506,7 @@ export default function Tasks() {
                     <button key={p} type="button" onClick={() => setForm(f => ({ ...f, priority: p }))}
                       className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                         form.priority === p
-                          ? p === 'high' ? 'bg-red-500 text-white border-red-500'
+                          ? p === 'high'   ? 'bg-red-500 text-white border-red-500'
                           : p === 'medium' ? 'bg-orange-500 text-white border-orange-500'
                           : 'bg-green-500 text-white border-green-500'
                           : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'

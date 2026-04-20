@@ -68,6 +68,10 @@ create_table Notifications \
   --key-schema AttributeName=notification_id,KeyType=HASH \
   --attribute-definitions AttributeName=notification_id,AttributeType=S
 
+create_table ActivityLog \
+  --key-schema AttributeName=activity_id,KeyType=HASH \
+  --attribute-definitions AttributeName=activity_id,AttributeType=S
+
 # ─── Kinesis Stream ───────────────────────────────────────────────────────────
 
 echo ""

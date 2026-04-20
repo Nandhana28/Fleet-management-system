@@ -32,22 +32,24 @@ class PasswordChange(BaseModel):
 
 
 @router.get("/me")
-def get_profile(user=Depends(get_current_user)):
+def get_profile(user_id: str = Depends(get_current_user)):
     """Fetch current user profile"""
     try:
-        user_data = queries.get_user_by_id(user['user_id'])
+        user_data = queries.get_user_by_id(user_id)
         if not user_data:
             raise HTTPException(status_code=404, detail="User not found")
 
         # Remove sensitive fields
         user_data.pop('password_hash', None)
         return user_data
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.patch("/me")
-def update_profile(req: ProfileUpdate, user=Depends(get_current_user)):
+def update_profile(req: ProfileUpdate, user_id: str = Depends(get_current_user)):
     """Update user profile"""
     try:
         updates = req.dict(exclude_unset=True)
@@ -55,18 +57,20 @@ def update_profile(req: ProfileUpdate, user=Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="No fields to update")
 
         updates['last_updated'] = datetime.utcnow().isoformat()
-        queries.update_user(user['user_id'], updates)
+        queries.update_user(user_id, updates)
 
-        updated_user = queries.get_user_by_id(user['user_id'])
+        updated_user = queries.get_user_by_id(user_id)
         updated_user.pop('password_hash', None)
 
         return {"message": "Profile updated", "user": updated_user}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.patch("/preferences")
-def update_preferences(req: PreferencesUpdate, user=Depends(get_current_user)):
+def update_preferences(req: PreferencesUpdate, user_id: str = Depends(get_current_user)):
     """Update user preferences (theme, language, timezone, notification frequency)"""
     try:
         prefs = req.dict(exclude_unset=True)
@@ -75,40 +79,52 @@ def update_preferences(req: PreferencesUpdate, user=Depends(get_current_user)):
 
         # Store preferences as JSON in user record
         updates = {'preferences': json.dumps(prefs), 'last_updated': datetime.utcnow().isoformat()}
-        queries.update_user(user['user_id'], updates)
+        queries.update_user(user_id, updates)
 
         return {"message": "Preferences updated", "preferences": prefs}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/avatar")
-async def upload_avatar(file: UploadFile = File(...), user=Depends(get_current_user)):
-    """Upload user avatar"""
+async def upload_avatar(file: UploadFile = File(...), user_id: str = Depends(get_current_user)):
+    """Upload user avatar — saves to disk and returns a URL."""
     try:
-        if file.content_type not in ["image/jpeg", "image/png", "image/gif", "image/webp"]:
-            raise HTTPException(status_code=400, detail="Invalid image format")
+        allowed = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+        if file.content_type not in allowed:
+            raise HTTPException(status_code=400, detail="Only JPEG, PNG, GIF and WEBP are allowed")
 
-        # Simple local storage approach
-        filename = f"avatar_{user['user_id']}_{int(datetime.utcnow().timestamp())}.jpg"
-        avatar_url = f"/avatars/{filename}"
+        import pathlib
+        ext = (file.filename or 'avatar.jpg').rsplit('.', 1)[-1].lower()
+        if ext not in ('jpg', 'jpeg', 'png', 'gif', 'webp'):
+            ext = 'jpg'
 
-        # In production: save to S3, for now just store path
-        updates = {'avatar_url': avatar_url, 'last_updated': datetime.utcnow().isoformat()}
-        queries.update_user(user['user_id'], updates)
+        avatars_dir = pathlib.Path(__file__).resolve().parent.parent.parent / "static" / "avatars"
+        avatars_dir.mkdir(parents=True, exist_ok=True)
 
+        filename = f"avatar_{user_id}.{ext}"
+        filepath = avatars_dir / filename
+
+        content = await file.read()
+        with open(filepath, 'wb') as f:
+            f.write(content)
+
+        avatar_url = f"/static/avatars/{filename}"
+        queries.update_user(user_id, {'avatar_url': avatar_url, 'last_updated': datetime.utcnow().isoformat()})
         return {"message": "Avatar uploaded", "avatar_url": avatar_url}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/activity")
-def get_activity(user=Depends(get_current_user), limit: int = 50):
+def get_activity(user_id: str = Depends(get_current_user), limit: int = 50):
     """Get user activity log (logins, actions)"""
     try:
-        # Fetch from activity log (stored in DynamoDB)
-        activities = queries.get_user_activity(user['user_id'], limit=limit)
-
+        activities = queries.get_user_activity(user_id, limit=limit)
         return {
             "activities": activities or [],
             "total": len(activities) if activities else 0
@@ -118,14 +134,14 @@ def get_activity(user=Depends(get_current_user), limit: int = 50):
 
 
 @router.post("/activity/log")
-def log_activity(action: str, user=Depends(get_current_user)):
+def log_activity(action: str, user_id: str = Depends(get_current_user)):
     """Log user activity (for internal use)"""
     try:
         activity = {
-            'user_id': user['user_id'],
+            'activity_id': str(uuid.uuid4()),
+            'user_id': user_id,
             'action': action,
             'timestamp': datetime.utcnow().isoformat(),
-            'ip_address': user.get('ip_address', 'unknown')
         }
         queries.create_activity_log(activity)
         return {"message": "Activity logged"}

@@ -10,11 +10,18 @@ interface Tab {
 interface TabsProps {
   tabs: Tab[]
   defaultTab?: string
+  activeTab?: string
+  onTabChange?: (id: string) => void
   className?: string
 }
 
-export function Tabs({ tabs, defaultTab, className = '' }: TabsProps) {
-  const [activeTab, setActiveTab] = useState(defaultTab || tabs[0]?.id)
+export function Tabs({ tabs, defaultTab, activeTab: controlledTab, onTabChange, className = '' }: TabsProps) {
+  const [internalTab, setInternalTab] = useState(defaultTab || tabs[0]?.id)
+  const activeTab = controlledTab ?? internalTab
+  const setActiveTab = (id: string) => {
+    setInternalTab(id)
+    onTabChange?.(id)
+  }
 
   return (
     <div className={className}>

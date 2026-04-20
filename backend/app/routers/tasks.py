@@ -21,30 +21,30 @@ LANDMARKS = [
 
 LANDMARK_COORDS = {
     'Gandhipuram Bus Stand':  [11.0168, 76.9558],
-    'Coimbatore Airport':     [11.0275, 77.0433],
-    'RS Puram':               [10.9987, 76.9508],
-    'Peelamedu':              [11.0168, 77.0081],
+    'Coimbatore Airport':     [11.0275, 77.0434],
+    'RS Puram':               [10.9987, 76.9617],   # was 76.9508 — too far west
+    'Peelamedu':              [11.0167, 77.0081],
     'Ukkadam':                [10.9847, 76.9762],
-    'Singanallur':            [11.0012, 77.0289],
-    'Tidel Park':             [11.0130, 77.0180],
-    'Podanur Junction':       [10.9697, 76.9785],
-    'Saibaba Colony':         [11.0080, 76.9720],
-    'Ganapathy':              [11.0230, 76.9640],
-    'Race Course':            [11.0050, 76.9650],
-    'Vadavalli':              [11.0150, 76.9050],
-    'Hopes College':          [11.0200, 76.9600],
-    'Kuniyamuthur':           [10.9580, 76.9700],
-    'Kovaipudur':             [10.9500, 76.9650],
-    'Thondamuthur':           [11.0050, 76.8750],
-    'Sulur':                  [11.0330, 77.1200],
-    'Kaniyur':                [10.9950, 77.0550],
-    'Mettupalayam Road':      [11.0400, 76.9700],
-    'Avinashi Road':          [11.0350, 77.0400],
-    'Town Hall':              [11.0020, 76.9619],
-    'CODISSIA':               [11.0297, 77.0329],
-    'Brookefields Mall':      [11.0168, 77.0081],
-    'Prozone Mall':           [11.0130, 77.0180],
-    'Coimbatore Junction':    [11.0010, 76.9686],
+    'Singanallur':            [11.0009, 77.0289],
+    'Tidel Park':             [11.0130, 77.0147],
+    'Podanur Junction':       [10.9704, 76.9605],   # was 76.9785 — wrong side of city
+    'Saibaba Colony':         [11.0110, 76.9676],   # was 11.0080, 76.9720
+    'Ganapathy':              [11.0228, 76.9632],
+    'Race Course':            [11.0057, 76.9636],
+    'Vadavalli':              [11.0236, 76.8929],   # was 11.0150, 76.9050 — too far east
+    'Hopes College':          [11.0168, 76.9543],   # was 11.0200, 76.9600
+    'Kuniyamuthur':           [10.9580, 76.9740],
+    'Kovaipudur':             [10.9467, 76.9512],   # was 10.9500, 76.9650
+    'Thondamuthur':           [10.9748, 76.8711],   # SW of Coimbatore on Anaimalai road
+    'Sulur':                  [11.0302, 77.1200],
+    'Kaniyur':                [11.0390, 77.0560],
+    'Mettupalayam Road':      [11.0600, 76.9380],   # was 11.0400, 76.9700
+    'Avinashi Road':          [11.0458, 77.0189],   # was 11.0350, 77.0400
+    'Town Hall':              [11.0024, 76.9660],
+    'CODISSIA':               [11.0302, 77.0327],
+    'Brookefields Mall':      [11.0205, 77.0059],
+    'Prozone Mall':           [11.0152, 77.0147],
+    'Coimbatore Junction':    [11.0021, 76.9689],
 }
 
 

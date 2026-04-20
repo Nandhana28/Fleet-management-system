@@ -5,6 +5,7 @@ import { useUserStore } from '../../store/user'
 import { useProfile } from '../../hooks/useProfile'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../../services/api'
+import { getAlerts } from '../../services/alertApi'
 
 export default function Header() {
   const { data: alerts } = useAlerts()
@@ -15,6 +16,8 @@ export default function Header() {
   const { showToast, addLog, exportLogs, logs, clearLogs } = useToastStore()
   const [showSavePrompt, setShowSavePrompt] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [showAlertsPanel, setShowAlertsPanel] = useState(false)
+  const [allAlerts, setAllAlerts] = useState<any[]>([])
   const [prevNotifIds, setPrevNotifIds] = useState<Set<string>>(new Set())
   const prevRef = useRef<Set<string>>(new Set())
 
@@ -25,7 +28,7 @@ export default function Header() {
     { path: '/analytics',   label: 'Analytics' },
     { path: '/agent',       label: 'AI Agent' },
     { path: '/maintenance', label: 'Maintenance' },
-    { path: '/settings',    label: 'Settings' },
+    { path: '/profile',     label: 'Profile' },
   ]
 
   // Poll notifications — only SOS triggers toast, everything else goes to log
@@ -37,17 +40,11 @@ export default function Header() {
         const newOnes = notifs.filter(n => !prevRef.current.has(n.id))
 
         newOnes.forEach(n => {
-          // Always add to log
           addLog({
             message:    n.message,
             type:       n.type,
             vehicle_id: n.vehicle_id,
           })
-
-          // Only SOS shows as popup toast
-          if (n.message.toLowerCase().includes('sos') || n.type === 'sos') {
-            showToast(n.message, 'error')
-          }
         })
 
         if (newOnes.length > 0) {
@@ -137,11 +134,61 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-3">
-        {alerts && alerts.length > 0 && (
-          <span className="bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full font-medium">
-            {alerts.length} Alerts
-          </span>
-        )}
+        {/* Alerts badge — click to view all alerts including resolved */}
+        <div className="relative">
+          {alerts && alerts.length > 0 && (
+            <button
+              onClick={async () => {
+                setShowAlertsPanel(v => !v)
+                setShowProfileMenu(false)
+                if (!showAlertsPanel) {
+                  const all = await getAlerts(false).catch(() => [])
+                  setAllAlerts(Array.isArray(all) ? all : [])
+                }
+              }}
+              className="bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full font-medium hover:bg-red-200 transition-colors"
+            >
+              {alerts.length} Alerts
+            </button>
+          )}
+
+          {showAlertsPanel && (
+            <div className="absolute right-0 mt-2 w-96 bg-white border border-gray-200 rounded-xl shadow-2xl z-[9999] flex flex-col max-h-[480px]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <h3 className="text-sm font-semibold text-gray-800">All Alerts ({allAlerts.length})</h3>
+                <button onClick={() => setShowAlertsPanel(false)} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
+                {allAlerts.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-6">No alerts found</p>
+                ) : allAlerts.map((a: any) => (
+                  <div key={a.alert_id} className="px-4 py-3 hover:bg-gray-50">
+                    <div className="flex items-start gap-2">
+                      <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                        a.severity === 'high' ? 'bg-red-500' :
+                        a.severity === 'medium' ? 'bg-amber-400' : 'bg-blue-400'
+                      }`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-800 truncate">{a.alert_type}</p>
+                        <p className="text-xs text-gray-500 truncate">{a.vehicle_id} · {a.driver_id}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{a.created_at ? new Date(a.created_at).toLocaleString() : ''}</p>
+                      </div>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full shrink-0 ${
+                        a.status === 'resolved' ? 'bg-gray-100 text-gray-500' : 'bg-red-50 text-red-600'
+                      }`}>
+                        {a.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Profile Dropdown */}
         <div className="relative">
@@ -164,7 +211,7 @@ export default function Header() {
                 <p className="text-xs text-gray-500">{user?.email || ''}</p>
               </div>
               <button
-                onClick={() => { navigate('/profile'); setShowProfileMenu(false) }}
+                onClick={() => { navigate('/profile?tab=profile'); setShowProfileMenu(false) }}
                 className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -173,7 +220,7 @@ export default function Header() {
                 My Profile
               </button>
               <button
-                onClick={() => { navigate('/profile'); setShowProfileMenu(false) }}
+                onClick={() => { navigate('/profile?tab=preferences'); setShowProfileMenu(false) }}
                 className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

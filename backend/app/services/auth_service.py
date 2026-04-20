@@ -94,6 +94,22 @@ def login_user(email: str, password: str) -> str:
         raise ValueError(f"This account uses {user.get('provider')} login.")
     if not verify_password(password, user['password_hash']):
         raise ValueError("Invalid email or password.")
+    # Record last login and activity
+    try:
+        from app.db.queries import update_user, create_activity_log
+        from datetime import datetime
+        import uuid
+        now = datetime.utcnow().isoformat()
+        update_user(user['user_id'], {'last_login': now})
+        create_activity_log({
+            'activity_id': str(uuid.uuid4()),
+            'user_id': user['user_id'],
+            'action': 'Signed in',
+            'type': 'login',
+            'timestamp': now,
+        })
+    except Exception:
+        pass
     return create_jwt(user['user_id'], user['email'])
 
 

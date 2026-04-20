@@ -48,23 +48,21 @@ export default function Maintenance() {
 
   const fetchData = async () => {
     try {
-      const url = filterVehicle
-        ? `${API}/maintenance?vehicle_id=${filterVehicle}`
-        : `${API}/maintenance`;
-      const [recRes, dueRes, vRes] = await Promise.all([
-        fetch(url, { headers }),
-        fetch(`${API}/maintenance/due`, { headers }),
-        fetch(`${API}/vehicles`, { headers }),
-      ]);
-      const recData = await recRes.json();
-      const dueData = await dueRes.json();
-      const vData = await vRes.json();
-      setRecords(recData.records || []);
-      setDueRecords(dueData.due_records || []);
-      setVehicles(vData.vehicles || vData || []);
-    } catch (e) {
-      console.error(e);
-    }
+      const url = filterVehicle ? `${API}/maintenance?vehicle_id=${filterVehicle}` : `${API}/maintenance`
+      const recRes = await fetch(url, { headers })
+      const recData = await recRes.json()
+      setRecords(recData.records || [])
+    } catch (e) { console.error(e) }
+    try {
+      const dueRes = await fetch(`${API}/maintenance/due`, { headers })
+      const dueData = await dueRes.json()
+      setDueRecords(dueData.due_records || [])
+    } catch (e) { console.error(e) }
+    try {
+      const vRes = await fetch(`${API}/vehicles`, { headers })
+      const vData = await vRes.json()
+      setVehicles(vData.vehicles || vData || [])
+    } catch (e) { console.error(e) }
   };
 
   useEffect(() => { fetchData(); }, [filterVehicle]);

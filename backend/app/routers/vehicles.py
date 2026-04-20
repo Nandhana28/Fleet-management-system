@@ -62,10 +62,10 @@ def get_vehicle_trips(vehicle_id: str, limit: int = 50, user=Depends(get_current
 @router.get("/{vehicle_id}/route")
 async def get_vehicle_route(vehicle_id: str):
     """Return the road waypoints stored by the simulator."""
-    import os, json, redis as redis_lib
+    import json
     try:
-        r = redis_lib.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-        raw = r.get(f"vehicle:{vehicle_id}:route")
+        from app.services.cache_service import client as redis_client
+        raw = redis_client.get(f"vehicle:{vehicle_id}:route")
         if not raw:
             return {"waypoints": []}
         data = json.loads(raw)

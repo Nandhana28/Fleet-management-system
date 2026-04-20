@@ -31,6 +31,8 @@ export const useToastStore = create<ToastStore>((set, get) => ({
   logs: [],
 
   showToast: (message, type = 'success') => {
+    // Deduplicate — don't show same message if already visible
+    if (get().toasts.some(t => t.message === message)) return
     const id = Date.now()
     set(s => ({ toasts: [...s.toasts, { id, message, type }] }))
     setTimeout(() => {

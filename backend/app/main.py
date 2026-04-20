@@ -2,10 +2,12 @@ import asyncio
 import subprocess
 import sys
 import os
+import pathlib
 from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings as app_settings
 from app.routers import health, vehicles, alerts, analytics, agent, auth, maintenance, profile, fuel
@@ -55,6 +57,12 @@ app.include_router(contact_router.router, prefix='/contact', tags=['contact'])
 app.include_router(profile.router, tags=["profile"])
 app.include_router(fuel.router, tags=["fuel"])
 
+# Serve uploaded avatars as static files
+_STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "static"
+_AVATARS_DIR = _STATIC_DIR / "avatars"
+_AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
 socket_app = app
 
 _simulator_proc = None
@@ -89,6 +97,30 @@ def start_simulator():
     print(f'[Simulator] Started PID {_simulator_proc.pid}')
 
 
+LANDMARK_COORDS = {
+    'Gandhipuram Bus Stand':  (11.0168, 76.9558),
+    'Coimbatore Airport':     (11.0275, 77.0434),
+    'RS Puram':               (10.9987, 76.9617),
+    'Peelamedu':              (11.0167, 77.0081),
+    'Ukkadam':                (10.9847, 76.9762),
+    'Singanallur':            (11.0009, 77.0289),
+    'Tidel Park':             (11.0130, 77.0147),
+    'Podanur Junction':       (10.9704, 76.9605),
+    'Saibaba Colony':         (11.0110, 76.9676),
+    'Ganapathy':              (11.0228, 76.9632),
+    'Race Course':            (11.0057, 76.9636),
+    'Vadavalli':              (11.0236, 76.8929),
+    'Hopes College':          (11.0168, 76.9543),
+    'Kuniyamuthur':           (10.9580, 76.9740),
+    'Kovaipudur':             (10.9467, 76.9512),
+    'Thondamuthur':           (10.9748, 76.8711),
+    'Sulur':                  (11.0302, 77.1200),
+    'Kaniyur':                (11.0390, 77.0560),
+    'Mettupalayam Road':      (11.0600, 76.9380),
+    'Avinashi Road':          (11.0458, 77.0189),
+}
+
+
 def auto_seed_if_empty():
     """Seed vehicles, drivers, and tasks if DynamoDB tables are empty (LocalStack data loss guard)."""
     try:
@@ -98,16 +130,33 @@ def auto_seed_if_empty():
 
         db = boto3.resource(
             'dynamodb',
-            endpoint_url=os.environ.get('LOCALSTACK_ENDPOINT', 'http://localstack:4566'),
+            endpoint_url=app_settings.localstack_endpoint,
             region_name='ap-south-1',
             aws_access_key_id='test', aws_secret_access_key='test',
         )
+
+        # Ensure ActivityLog table exists
+        try:
+            existing = [t.name for t in db.tables.all()]
+            if 'ActivityLog' not in existing:
+                db.create_table(
+                    TableName='ActivityLog',
+                    KeySchema=[{'AttributeName': 'activity_id', 'KeyType': 'HASH'}],
+                    AttributeDefinitions=[{'AttributeName': 'activity_id', 'AttributeType': 'S'}],
+                    BillingMode='PAY_PER_REQUEST',
+                )
+                print('[Seed] Created ActivityLog table')
+        except Exception as e:
+            print(f'[Seed] ActivityLog table check failed: {e}')
+
         vt = db.Table('Vehicles')
         if vt.scan(Select='COUNT')['Count'] > 0:
-            return  # data is already there
+            # Fix any existing tasks that have wrong end_coords
+            _fix_task_coords(db)
+            return  # vehicles already seeded
 
         print('[Seed] Vehicles table is empty — auto-seeding...')
-        r = redis_lib.from_url(os.environ.get('REDIS_URL', 'redis://redis:6379/0'), decode_responses=True)
+        r = redis_lib.from_url(app_settings.redis_url, decode_responses=True)
         now = datetime.utcnow().isoformat()
 
         VEHICLES = [
@@ -161,9 +210,11 @@ def auto_seed_if_empty():
                 'safety_score': 85, 'created_at': now,
             })
 
-        # Seed tasks for all 10 vehicles — CRITICAL for simulator to work
+        # Seed tasks for all 10 vehicles with CORRECT landmark coordinates
         task_count = 0
-        for i, (vid, reg, vtype, driver, cap, lat, lon, src, dst) in enumerate(VEHICLES, 1):
+        for vid, reg, vtype, driver, cap, lat, lon, src, dst in VEHICLES:
+            s_coords = LANDMARK_COORDS.get(src, (lat, lon))
+            e_coords = LANDMARK_COORDS.get(dst, (lat, lon))
             task_id = str(uuid.uuid4())
             tt.put_item(Item={
                 'task_id': task_id,
@@ -171,8 +222,8 @@ def auto_seed_if_empty():
                 'driver_id': driver,
                 'source': src,
                 'dest': dst,
-                'start_coords': [Decimal(str(lat)), Decimal(str(lon))],
-                'end_coords': [Decimal(str(10.9500 + i*0.001)), Decimal(str(76.9650 + i*0.001))],
+                'start_coords': [Decimal(str(s_coords[0])), Decimal(str(s_coords[1]))],
+                'end_coords':   [Decimal(str(e_coords[0])), Decimal(str(e_coords[1]))],
                 'status': 'active',
                 'priority': 'medium',
                 'created_at': now,
@@ -182,6 +233,41 @@ def auto_seed_if_empty():
         print(f'[Seed] Auto-seed complete — 10 vehicles, 10 drivers, {task_count} tasks added')
     except Exception as e:
         print(f'[Seed] Auto-seed failed (non-fatal): {e}')
+
+
+def _fix_task_coords(db):
+    """Fix any active tasks that have wrong end_coords from the old bad seed."""
+    try:
+        from decimal import Decimal
+        tt = db.Table('Tasks')
+        resp = tt.scan()
+        fixed = 0
+        for t in resp.get('Items', []):
+            if t.get('status') != 'active':
+                continue
+            src = t.get('source', '')
+            dst = t.get('dest', '')
+            if src not in LANDMARK_COORDS or dst not in LANDMARK_COORDS:
+                continue
+            correct_start = LANDMARK_COORDS[src]
+            correct_end   = LANDMARK_COORDS[dst]
+            stored_end = t.get('end_coords', [0, 0])
+            # Detect wrong coords: if stored end is more than ~5km off, fix it
+            diff = abs(float(stored_end[0]) - correct_end[0]) + abs(float(stored_end[1]) - correct_end[1])
+            if diff > 0.01:
+                tt.update_item(
+                    Key={'task_id': t['task_id']},
+                    UpdateExpression='SET start_coords = :s, end_coords = :e',
+                    ExpressionAttributeValues={
+                        ':s': [Decimal(str(correct_start[0])), Decimal(str(correct_start[1]))],
+                        ':e': [Decimal(str(correct_end[0])),   Decimal(str(correct_end[1]))],
+                    }
+                )
+                fixed += 1
+        if fixed:
+            print(f'[Seed] Fixed {fixed} tasks with wrong landmark coordinates')
+    except Exception as e:
+        print(f'[Seed] Task coord fix failed: {e}')
 
 
 @app.on_event('startup')

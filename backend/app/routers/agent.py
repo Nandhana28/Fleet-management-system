@@ -76,6 +76,16 @@ async def agent_chat_sync(
     return {"response": response, "session_id": request.session_id}
 
 
+@router.get("/info")
+def get_agent_info(user=Depends(get_current_user)):
+    """Return the model info for the current agent."""
+    groq_key = settings.groq_api_key
+    if groq_key:
+        return {"model": "groq", "model_label": "Groq · Llama 3.3 70B", "model_id": "llama-3.3-70b-versatile"}
+    else:
+        return {"model": "anthropic", "model_label": "Anthropic · Claude Haiku", "model_id": "claude-3-5-haiku-20241022"}
+
+
 @router.get("/tools")
 def list_tools(user=Depends(get_current_user)):
     return {

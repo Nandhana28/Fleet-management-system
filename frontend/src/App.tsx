@@ -11,6 +11,7 @@ import Agent from './pages/Agent'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 import Header from './components/layout/Header'
+import { useTheme } from './hooks/useTheme'
 import AlertBanner from './components/alerts/AlertBanner'
 import ToastContainer from './components/ui/ToastContainer'
 import Maintenance from "./pages/Maintenance";
@@ -25,6 +26,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell() {
+  useTheme()  // initialize dark mode from localStorage on every page
   const location = useLocation()
   const isAuthPage = AUTH_PATHS.includes(location.pathname)
 
